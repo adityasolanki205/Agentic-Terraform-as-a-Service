@@ -1,2 +1,2 @@
-# Agentic-terraform-as-a-service
+# Agentic-Terraform-as-a-Service
 AI-powered, agentic Terraform platform for automated, secure, and approval-driven cloud resource provisioning across Google Cloud and AWS
