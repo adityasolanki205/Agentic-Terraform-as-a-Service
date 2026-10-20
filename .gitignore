@@ -1,0 +1,17 @@
+# Local Python environments and credentials
+.venv/
+taas-env/
+.env
+__pycache__/
+*.py[cod]
+
+# Terraform working data, state, and saved plans
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+terraform.tfstate.backup
+
+# Local request records and logs; generated artifacts stay visible for review
+.taas/
+*.log
