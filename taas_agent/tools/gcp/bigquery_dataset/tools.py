@@ -19,11 +19,13 @@ from uuid import UUID, uuid4
 
 # This file is nested under taas_agent/tools/gcp/bigquery_dataset.
 PROJECT_ROOT = Path(__file__).resolve().parents[4]
-STARTER_DIR = (
+COMMON_STARTER_DIR = PROJECT_ROOT / "terraform_starters" / "common"
+RESOURCE_STARTER_FILE = (
     PROJECT_ROOT
     / "terraform_starters"
     / "gcp"
     / "bigquery_dataset"
+    / "bigquery_dataset.tf"
 )
 ARTIFACTS_DIR = PROJECT_ROOT / "artifacts"
 REQUESTS_DIR = PROJECT_ROOT / ".taas" / "requests"
@@ -141,14 +143,19 @@ def generate_bigquery_dataset_files(
     """Copy the approved Terraform starter and fill in request values.
 
     Call only after collecting the project ID, dataset ID, and location.
-    Creates main.tf, variables.tf, and terraform.tfvars under a unique folder
-    in artifacts/. Does not execute Terraform or contact Google Cloud.
+    Copies shared main.tf and variables.tf, then adds the BigQuery dataset
+    resource file and request values under a unique artifacts/ folder. Does
+    not execute Terraform or contact Google Cloud.
     """
     values, errors = _validate_values(project_id, dataset_id, location)
     if errors:
         return {"status": "INVALID", "errors": errors}
 
-    starter_files = [STARTER_DIR / "main.tf", STARTER_DIR / "variables.tf"]
+    starter_files = [
+        COMMON_STARTER_DIR / "main.tf",
+        COMMON_STARTER_DIR / "variables.tf",
+        RESOURCE_STARTER_FILE,
+    ]
     missing = [str(path) for path in starter_files if not path.is_file()]
     if missing:
         return {
@@ -162,13 +169,17 @@ def generate_bigquery_dataset_files(
     output_dir.mkdir(parents=True, exist_ok=False)
 
     for starter in starter_files:
+        # Shared files stay named main.tf/variables.tf in every generated root.
+        # Each resource starter keeps a distinct filename for easy review.
         shutil.copy2(starter, output_dir / starter.name)
 
     # JSON string quoting is compatible with Terraform's quoted string values.
     tfvars_content = (
         f"project_id = {json.dumps(values['project_id'])}\n"
-        f"dataset_id = {json.dumps(values['dataset_id'])}\n"
         f"location   = {json.dumps(values['location'])}\n"
+        "resource_config = {\n"
+        f"  dataset_id = {json.dumps(values['dataset_id'])}\n"
+        "}\n"
     )
     (output_dir / "terraform.tfvars").write_text(
         tfvars_content,
@@ -194,6 +205,7 @@ def generate_bigquery_dataset_files(
         "files": [
             str(output_dir / "main.tf"),
             str(output_dir / "variables.tf"),
+            str(output_dir / "bigquery_dataset.tf"),
             str(output_dir / "terraform.tfvars"),
         ],
         "message": (

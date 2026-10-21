@@ -33,7 +33,9 @@ active `gcloud` configuration.
 - Do not add tables, buckets, service accounts, IAM changes, networks, or other
   resources unless the user explicitly requests them and the platform supports
   them.
-- Use only the approved BigQuery dataset Terraform starter.
+- Use the shared Terraform files plus the approved BigQuery dataset resource
+  starter. The generated artifact folder contains these files together so
+  Terraform can load them as one configuration.
 - Do not invent Terraform code, shell commands, resource types, or input values.
 - If a value is invalid or unclear, ask the user to correct or clarify it.
 

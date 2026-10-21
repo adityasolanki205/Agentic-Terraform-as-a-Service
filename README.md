@@ -29,56 +29,86 @@ taas_agent/
   skills/terraform-provisioning/SKILL.md
   tools/gcp/bigquery_dataset/tools.py
 terraform_starters/gcp/bigquery_dataset/
+  bigquery_dataset.tf
+terraform_starters/common/
   main.tf
   variables.tf
 artifacts/                 # Generated Terraform files
 .taas/requests/             # Local request records and saved plans
 ```
 
+`terraform_starters/common/main.tf` and `variables.tf` hold configuration
+shared by all resources. Each resource folder contains only that resource's
+Terraform block. The generator copies the common files and the selected
+resource file together into one generated Terraform root folder, because
+Terraform reads `.tf` files from the same directory.
+
 Each future resource gets its own Python tool folder and its own Terraform
 starter folder. The agent instructions and skill explain the workflow; Python
 tools enforce the supported operations.
 
-## Local setup
+## Run it in Google Cloud Shell
 
-Use a fresh Python environment in Google Cloud Shell. Activate the environment,
-then install the project dependencies:
+These steps install the Python packages and start the ADK web interface. They
+do not create a cloud resource.
 
-```bash
-python -m pip install -r requirements.txt
-```
+1. Open the project folder and activate your Python environment:
 
-Configure ADK to use Vertex AI with your selected project and model location:
+   ```bash
+   cd ~/Agentic-Terraform-as-a-Service
+   source taas-env/bin/activate
+   ```
 
-```bash
-export GOOGLE_GENAI_USE_VERTEXAI=TRUE
-export GOOGLE_CLOUD_PROJECT="YOUR_PROJECT_ID"
-export GOOGLE_CLOUD_LOCATION="global"
-```
+   If your environment has a different name, replace `taas-env` with its name.
 
-The project ID requested in chat is still collected explicitly; the environment
-variable above is for Gemini model access.
+2. Check Terraform is available. This project was written for Terraform 1.5 or
+   newer. If the command is missing, install Terraform using the
+   [official HashiCorp instructions](https://developer.hashicorp.com/terraform/install).
 
-## GCS Terraform state
+   ```bash
+   terraform version
+   ```
 
-Before planning, set `TAAS_STATE_BUCKET` to the name of an existing GCS bucket
-that is approved for Terraform state:
+3. Install the Python dependencies:
 
-```bash
-export TAAS_STATE_BUCKET="YOUR_EXISTING_STATE_BUCKET"
-```
+   ```bash
+   python -m pip install -r requirements.txt
+   ```
 
-The bucket must have object versioning enabled. The GCS backend uses a single
-default Terraform state at the prefix `taas/<project-id>` and provides state
-locking. The application does not create the bucket or modify its IAM settings.
+4. Configure Gemini through Vertex AI. The active `gcloud` project here is for
+   Gemini access only; the agent will still ask the user to provide the target
+   resource project ID in chat.
 
-## Run the ADK web interface
+   ```bash
+   export GOOGLE_GENAI_USE_VERTEXAI=TRUE
+   export GOOGLE_CLOUD_PROJECT="$(gcloud config get-value project)"
+   export GOOGLE_CLOUD_LOCATION="global"
+   ```
 
-From the project root, with the environment activated and configuration set:
+5. Set the name of the already-created, approved Terraform state bucket:
 
-```bash
-adk web
-```
+   ```bash
+   export TAAS_STATE_BUCKET="YOUR_EXISTING_STATE_BUCKET"
+   ```
+
+   The bucket must have object versioning enabled. The tool will stop before
+   Terraform initialization if the bucket is missing or not versioned. It does
+   not create the bucket or change its permissions.
+
+6. Start the chat interface from the project root:
+
+   ```bash
+   adk web
+   ```
+
+7. Ask for a BigQuery dataset. Provide the target project ID, dataset ID, and
+   location when asked. Review the generated files and plan. Apply happens only
+   after you approve the plan in the ADK interface.
+
+The Google Cloud SDKs use the credentials available in Cloud Shell. The account
+needs permission to create the requested BigQuery dataset and access the
+approved state bucket. No separate application authentication setup is included
+in this POC.
 
 Use the web interface for the POC. The future EnterpriseGPT integration is out
 of scope for this phase.
