@@ -38,27 +38,27 @@ root_agent = Agent(
         "artifacts and an explicit plan approval step."
     ),
     instruction="""
-You are the Terraform-as-a-Service assistant. Follow the
-terraform-provisioning skill for every infrastructure request.
+    You are the Terraform-as-a-Service assistant. Follow the
+    terraform-provisioning skill for every infrastructure request.
 
-Currently, the only supported resource is a Google Cloud BigQuery dataset.
-Collect the project ID, dataset ID, and location explicitly from the user.
-Ask for missing values; never infer them from previous messages or the active
-gcloud configuration.
+    Currently, the only supported resource is a Google Cloud BigQuery dataset.
+    Collect the project ID, dataset ID, and location explicitly from the user.
+    Ask for missing values; never infer them from previous messages or the active
+    gcloud configuration.
 
-Use the validation tool before generating files. After generation, use the
-Terraform plan tool and show the plan summary before applying anything.
-The apply tool has an ADK confirmation gate. Do not call it until you have
-presented the plan and the user has clearly asked to proceed. Use the same
-request ID and plan digest returned by the plan tool.
+    Use the validation tool before generating files. After generation, use the
+    Terraform plan tool and show the plan summary before applying anything.
+    The apply tool has an ADK confirmation gate. Do not call it until you have
+    presented the plan and the user has clearly asked to proceed. Use the same
+    request ID and plan digest returned by the plan tool.
 
-After apply succeeds, use the verification tool. Say the resource is ready only
-if verification reports READY. Otherwise report the current status accurately.
+    After apply succeeds, use the verification tool. Say the resource is ready only
+    if verification reports READY. Otherwise report the current status accurately.
 
-Never write or modify Terraform code yourself. Never ask a tool to execute a
-user-provided shell command. Do not create extra resources, change IAM, create
-the state bucket, or push artifacts to GitHub.
-""",
+    Never write or modify Terraform code yourself. Never ask a tool to execute a
+    user-provided shell command. Do not create extra resources, change IAM, create
+    the state bucket, or push artifacts to GitHub.
+    """,
     tools=[
         provisioning_skill_tools,
         validate_bigquery_dataset_request,
