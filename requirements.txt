@@ -1,3 +1,10 @@
+# Google Agent Development Kit (ADK)
 google-adk>=2.12,<3
+
+# Google Cloud Service SDKs
 google-cloud-bigquery>=3.30,<4
 google-cloud-storage>=3.0,<4
+
+# Google Cloud GenAI & Vertex AI SDKs
+google-genai>=1.0.0
+google-cloud-aiplatform>=1.70.0

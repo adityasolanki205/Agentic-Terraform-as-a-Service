@@ -1,71 +1,105 @@
-"""ADK agent that coordinates the Terraform provisioning workflow."""
+"""ADK agent that coordinates the generic Terraform-as-a-Service provisioning workflow."""
 
 from pathlib import Path
 
-from google.adk import Agent
-from google.adk.skills import load_skill_from_dir
-from google.adk.tools import skill_toolset
-from google.adk.tools.function_tool import FunctionTool
+try:
+    from google.adk import Agent
+    from google.adk.skills import load_skill_from_dir
+    from google.adk.tools import skill_toolset
+    from google.adk.tools.function_tool import FunctionTool
+    _HAS_ADK = True
+except ImportError:
+    Agent = None
+    _HAS_ADK = False
 
-from .tools.gcp.bigquery_dataset.tools import (
-    apply_bigquery_dataset,
-    generate_bigquery_dataset_files,
+from .tools import (
+    apply_resource,
+    generate_resource_files,
     get_request_status,
-    plan_bigquery_dataset,
-    validate_bigquery_dataset_request,
-    verify_bigquery_dataset,
+    list_taas_resources,
+    plan_deactivate_resource,
+    plan_recreate_resource,
+    plan_resource,
+    verify_resource,
 )
 
+if _HAS_ADK:
+    provisioning_skill = load_skill_from_dir(
+        Path(__file__).parent / "skills" / "terraform-provisioning"
+    )
+    provisioning_skill_tools = skill_toolset.SkillToolset(
+        skills=[provisioning_skill]
+    )
 
-provisioning_skill = load_skill_from_dir(
-    Path(__file__).parent / "skills" / "terraform-provisioning"
-)
-provisioning_skill_tools = skill_toolset.SkillToolset(
-    skills=[provisioning_skill]
-)
+    # ADK pauses for explicit user confirmation before applying any Terraform plan
+    apply_tool = FunctionTool(
+        apply_resource,
+        require_confirmation=True,
+    )
 
-# ADK pauses for an explicit user confirmation before invoking this tool.
-apply_tool = FunctionTool(
-    apply_bigquery_dataset,
-    require_confirmation=True,
-)
+    root_agent = Agent(
+        name="TaaSAgent",
+        model="gemini-3.5-flash-lite",
+        description=(
+            "Manages approved cloud resources through a declarative Terraform-as-a-Service "
+            "workflow with reviewable artifacts, approval gates, deactivation, and verification."
+        ),
+        instruction="""
+        You are the Terraform-as-a-Service (TaaS) assistant. Follow the
+        terraform-provisioning skill for every infrastructure request.
 
-root_agent = Agent(
-    name="TaaSAgent",
-    model="gemini-3.5-flash-lite",
-    description=(
-        "Creates approved Google Cloud resources with reviewable Terraform "
-        "artifacts and an explicit plan approval step."
-    ),
-    instruction="""
-    You are the Terraform-as-a-Service assistant. Follow the
-    terraform-provisioning skill for every infrastructure request.
+        Currently supported resources:
+        - Google Cloud BigQuery dataset ('gcp.bigquery_dataset' or 'bigquery_dataset')
 
-    Currently, the only supported resource is a Google Cloud BigQuery dataset.
-    Collect the project ID, dataset ID, and location explicitly from the user.
-    Ask for missing values; never infer them from previous messages or the active
-    gcloud configuration.
+        WORKFLOWS:
 
-    Use the validation tool before generating files. After generation, use the
-    Terraform plan tool and show the plan summary before applying anything.
-    The apply tool has an ADK confirmation gate. Do not call it until you have
-    presented the plan and the user has clearly asked to proceed. Use the same
-    request ID and plan digest returned by the plan tool.
+        1. CREATE RESOURCE:
+           - Collect target project ID, location, and resource name (e.g. dataset ID) from the user.
+           - Ask for any missing values; never guess or infer project IDs or names.
+           - Call generate_resource_files with the validated inputs.
+           - Call plan_resource using the returned request_id.
+           - Present the plan summary to the user. Do NOT apply immediately.
+           - The apply_resource tool has an ADK confirmation gate. Only call it when the user
+             explicitly approves the presented plan.
+           - After apply succeeds, call verify_resource to verify the resource in the cloud.
+           - Report ready ONLY when verify_resource returns READY.
 
-    After apply succeeds, use the verification tool. Say the resource is ready only
-    if verification reports READY. Otherwise report the current status accurately.
+        2. DELETE / DEACTIVATE RESOURCE:
+           - When a user asks to delete a resource, call plan_deactivate_resource.
+           - Explain to the user that the Terraform code has been commented out (#) in the
+             artifacts folder so it can be restored anytime, and that applying will destroy
+             the resource in Google Cloud and update the state in GCS.
+           - Present the destruction plan summary.
+           - Await user approval via the apply confirmation gate.
+           - After apply succeeds, call verify_resource to confirm the resource is gone.
 
-    Never write or modify Terraform code yourself. Never ask a tool to execute a
-    user-provided shell command. Do not create extra resources, change IAM, create
-    the state bucket, or push artifacts to GitHub.
-    """,
-    tools=[
-        provisioning_skill_tools,
-        validate_bigquery_dataset_request,
-        generate_bigquery_dataset_files,
-        plan_bigquery_dataset,
-        apply_tool,
-        verify_bigquery_dataset,
-        get_request_status,
-    ],
-)
+        3. RECREATE / RESTORE RESOURCE:
+           - When a user asks to restore or recreate a previously deactivated resource,
+             call plan_recreate_resource.
+           - Explain that the code was uncommented and present the creation plan.
+           - Await user approval via the apply confirmation gate.
+           - Apply and verify.
+
+        4. LIST / STATUS:
+           - Use list_taas_resources to view managed resources.
+           - Use get_request_status to check specific request progress.
+
+        SAFETY RULES:
+        - Never write or invent raw Terraform code yourself.
+        - Never execute shell commands or ask tools to execute shell scripts.
+        - Remote state in GCS is strictly version-controlled and updated through Terraform.
+        """,
+        tools=[
+            provisioning_skill_tools,
+            generate_resource_files,
+            plan_resource,
+            apply_tool,
+            plan_deactivate_resource,
+            plan_recreate_resource,
+            verify_resource,
+            get_request_status,
+            list_taas_resources,
+        ],
+    )
+else:
+    root_agent = None

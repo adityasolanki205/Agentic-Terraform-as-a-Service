@@ -1,69 +1,57 @@
 # Agentic Terraform as a Service (TaaS)
 
-A beginner-friendly Google Cloud proof of concept using Gemini ADK and approved
-Terraform starters. The first supported resource is a BigQuery dataset.
+A multi-cloud, declarative Terraform-as-a-Service platform using Gemini ADK and approved Terraform starters.
+Currently supports Google Cloud BigQuery datasets with generic tools ready to expand to more GCP and AWS data engineering resources.
 
 ## How it works
 
-1. The ADK agent collects the project ID, dataset ID, and location from the user.
-2. Python tools validate the values and copy the approved Terraform starter into
-   a request-specific artifact folder.
-3. The Terraform plan tool initializes the existing GCS backend, validates the
-   files, and creates a plan. The tool rejects any plan that contains a change
-   other than creating the requested dataset.
-4. The agent presents the plan. The apply tool has an ADK confirmation gate and
-   applies the saved plan only after the user confirms the tool call.
-5. An asynchronous verification tool checks that the dataset exists in the
-   requested project and location. The agent reports ready only after the check
-   succeeds.
-
-The app does not create a state bucket, change IAM, or push files to GitHub.
-Generated Terraform artifacts are written under `artifacts/` for review and
-manual commit. Request records and saved plan files are written under `.taas/`.
+1. **Create Resource**: The ADK agent collects the target project ID, location, and resource name.
+2. **Artifact Generation**: Generic tools copy the approved Terraform starter and common configuration into a dedicated artifact directory under `artifacts/`.
+3. **Plan & Pre-flight Inspection**: Terraform initializes the existing versioned GCS remote backend and runs `terraform plan`. The AST plan validator verifies that *only* the requested resource creation is planned.
+4. **Approval Gate**: The agent shows the plan summary. Applying requires explicit user approval via ADK's confirmation prompt.
+5. **Apply & Remote State**: Terraform applies the plan, creating the cloud resource and updating the authoritative remote state in GCS (`gs://<bucket>/taas/<project_id>/<resource_type>/<resource_name>`).
+6. **Cloud Verification**: An asynchronous verification tool queries the Google Cloud API to confirm the resource is ready.
+7. **Deactivate / Delete**: When a user asks to delete a resource, the tool comments out the resource block (`#`) in the `.tf` file and plans a destroy. Applying it removes the resource from Google Cloud and updates the GCS state, while preserving the commented code in `artifacts/` for full auditability and easy recreation.
+8. **Recreate**: When asked to recreate, the tool simply uncomments the `.tf` file and runs a creation plan and apply.
 
 ## Project layout
 
 ```text
 taas_agent/
-  agent.py
-  skills/terraform-provisioning/SKILL.md
-  tools/gcp/bigquery_dataset/tools.py
-terraform_starters/gcp/bigquery_dataset/
-  bigquery_dataset.tf
-terraform_starters/common/
-  main.tf
-  variables.tf
-artifacts/                 # Generated Terraform files
-.taas/requests/             # Local request records and saved plans
+  agent.py                             # ADK Agent (gemini-3.5-flash-lite, approval gates)
+  skills/terraform-provisioning/SKILL.md # Provisioning & deactivation guidance
+  tools/
+    __init__.py
+    tools.py                           # Generic lifecycle tools (generate, plan, apply, deactivate, recreate, verify)
+terraform_starters/
+  common/
+    main.tf                            # GCS backend & Google provider
+    variables.tf                       # Shared variables
+  gcp/
+    bigquery_dataset/
+      bigquery_dataset.tf              # Resource starter
+artifacts/                             # Generated Terraform files (commented upon deactivation)
+.taas/requests/                        # Local request records, metadata, and saved plans
 ```
 
-`terraform_starters/common/main.tf` and `variables.tf` hold configuration
-shared by all resources. Each resource folder contains only that resource's
-Terraform block. The generator copies the common files and the selected
-resource file together into one generated Terraform root folder, because
-Terraform reads `.tf` files from the same directory.
+## Quick Start (One-Click Setup)
 
-Each future resource gets its own Python tool folder and its own Terraform
-starter folder. The agent instructions and skill explain the workflow; Python
-tools enforce the supported operations.
+Run the automated setup script in Google Cloud Shell to install Terraform v1.9.8, setup the virtual environment, install dependencies, and configure environment variables:
 
-## Run it in Google Cloud Shell
+```bash
+bash setup.sh
+```
 
-These steps install the Python packages and start the ADK web interface. They
-do not create a cloud resource.
+## Manual Setup in Google Cloud Shell
 
 1. Open the project folder and activate your Python environment:
 
    ```bash
    cd ~/Agentic-Terraform-as-a-Service
-   source taas-env/bin/activate
+   source venv/bin/activate
    ```
 
-   If your environment has a different name, replace `taas-env` with its name.
-
-2. Check Terraform is available. This project was written for Terraform 1.5 or
-   newer. If the command is missing, install Terraform using the
-   [official HashiCorp instructions](https://developer.hashicorp.com/terraform/install).
+2. Check Terraform is available. (Terraform v1.5+ is required; v1.9.8 recommended):
 
    ```bash
    terraform version
@@ -95,15 +83,29 @@ do not create a cloud resource.
    Terraform initialization if the bucket is missing or not versioned. It does
    not create the bucket or change its permissions.
 
-6. Start the chat interface from the project root:
+6. Start the interactive chat interface using the Google Cloud SDK:
 
    ```bash
-   adk web
+   python run.py
    ```
 
-7. Ask for a BigQuery dataset. Provide the target project ID, dataset ID, and
-   location when asked. Review the generated files and plan. Apply happens only
-   after you approve the plan in the ADK interface.
+   *(Note: For the Google ADK Web UI in Cloud Shell, run: `adk web --allow_origins "regex:https://.*\.cloudshell\.dev"`)*
+
+7. Ask to create, delete, or recreate resources!
+   - To create: *"Create a BigQuery dataset named sales_data in project my-project in location US"*
+   - To delete: *"Delete BigQuery dataset sales_data in project my-project"*
+   - To recreate: *"Recreate BigQuery dataset sales_data in project my-project"*
+   - To list: *"List all created resources"*
+
+### Inspecting or Running Terraform Manually in Artifact Folders
+
+Each artifact directory under `artifacts/` contains the generated `.tf` files and a `backend.tfvars` file:
+
+```bash
+cd artifacts/<artifact_folder>
+terraform init -reconfigure -backend-config=backend.tfvars
+terraform plan
+```
 
 The Google Cloud SDKs use the credentials available in Cloud Shell. The account
 needs permission to create the requested BigQuery dataset and access the
