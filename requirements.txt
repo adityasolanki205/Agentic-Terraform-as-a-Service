@@ -8,3 +8,4 @@ google-cloud-storage>=3.0,<4
 # Google Cloud GenAI & Vertex AI SDKs
 google-genai>=1.0.0
 google-cloud-aiplatform>=1.70.0
+python-dotenv>=1.0.0

@@ -18,6 +18,7 @@ import shutil
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Literal
 from uuid import UUID, uuid4
 
 
@@ -32,16 +33,27 @@ VERIFY_ATTEMPTS = 6
 VERIFY_DELAY_SECONDS = 5
 
 
-# Registry of supported resources mapping to their starter directories and expected addresses.
+GCP_ARTIFACTS_DIR = ARTIFACTS_DIR / "gcp"
+
+# Registry of supported resources mapping to their single shared .tf files and resource definitions.
 SUPPORTED_RESOURCES = {
     "gcp.bigquery_dataset": {
         "provider": "gcp",
         "short_name": "bigquery_dataset",
         "starter_dir": STARTERS_DIR / "gcp" / "bigquery_dataset",
-        "primary_tf": "bigquery_dataset.tf",
-        "expected_address": "google_bigquery_dataset.requested",
+        "primary_tf": "dataset.tf",
+        "resource_type_hcl": "google_bigquery_dataset",
         "name_param": "dataset_id",
         "description": "Google Cloud BigQuery Dataset",
+    },
+    "gcp.bigquery_table": {
+        "provider": "gcp",
+        "short_name": "bigquery_table",
+        "starter_dir": STARTERS_DIR / "gcp" / "bigquery_table",
+        "primary_tf": "table.tf",
+        "resource_type_hcl": "google_bigquery_table",
+        "name_param": "table_id",
+        "description": "Google Cloud BigQuery Table",
     },
 }
 
@@ -100,6 +112,7 @@ def _find_records(
     project_id: str | None = None,
     resource_name: str | None = None,
     resource_type: str | None = None,
+    dataset_id: str | None = None,
 ) -> list[dict]:
     """Search existing request records matching filters."""
     results = []
@@ -117,6 +130,8 @@ def _find_records(
                     continue
                 if resource_type and rec.get("resource_type") != _normalize_resource_type(resource_type):
                     continue
+                if dataset_id and rec.get("resource_config", {}).get("dataset_id") != dataset_id:
+                    continue
                 results.append(rec)
             except Exception:
                 continue
@@ -125,47 +140,405 @@ def _find_records(
     return results
 
 
-def _toggle_tf_content(file_path: Path, comment_out: bool) -> None:
-    """Comment out or uncomment a Terraform resource file.
+def _ensure_common_artifacts(
+    artifacts_dir: Path,
+    project_id: str,
+    location: str,
+    state_bucket: str,
+) -> None:
+    """Ensure standard main.tf, variables.tf, backend.tfvars, and terraform.tfvars exist in the single artifacts folder.
 
-    When commented out, Terraform detects the resource has been removed from
-    configuration and generates a destroy plan, updating the state in GCS upon apply.
+    Copies code directly from terraform_starters/common/.
     """
-    lines = file_path.read_text(encoding="utf-8").splitlines()
-    new_lines = []
-    for line in lines:
-        stripped = line.strip()
-        if comment_out:
-            if stripped and not stripped.startswith("#"):
-                new_lines.append(f"# {line}")
-            else:
-                new_lines.append(line)
+    artifacts_dir.mkdir(parents=True, exist_ok=True)
+
+    main_tf = artifacts_dir / "main.tf"
+    starter_main = COMMON_STARTER_DIR / "main.tf"
+    if starter_main.is_file():
+        shutil.copy2(starter_main, main_tf)
+
+    variables_tf = artifacts_dir / "variables.tf"
+    starter_vars = COMMON_STARTER_DIR / "variables.tf"
+    if starter_vars.is_file():
+        shutil.copy2(starter_vars, variables_tf)
+
+    # Update or write terraform.tfvars
+    tfvars_path = artifacts_dir / "terraform.tfvars"
+    tfvars_content = (
+        f'project_id = "{project_id.strip()}"\n'
+        f'location   = "{location.strip()}"\n'
+    )
+    tfvars_path.write_text(tfvars_content, encoding="utf-8")
+
+    # Write backend.tfvars with project-scoped state prefix
+    if state_bucket:
+        backend_content = (
+            f'bucket = "{state_bucket}"\n'
+            f'prefix = "taas/{project_id.strip()}/gcp"\n'
+        )
+        (artifacts_dir / "backend.tfvars").write_text(backend_content, encoding="utf-8")
+
+
+def _build_resource_hcl(
+    resource_type: str,
+    resource_name: str,
+    project_id: str,
+    location: str,
+    config: dict | None = None,
+) -> tuple[str, str, str]:
+    """Build HCL string from approved terraform starters, Terraform resource name, and address.
+
+    Returns:
+        (hcl_block, tf_name, tf_address)
+    """
+    config = config or {}
+    clean_name = resource_name.strip()
+    clean_project = project_id.strip()
+    clean_location = location.strip()
+
+    if resource_type == "gcp.bigquery_dataset":
+        tf_name = re.sub(r"[^A-Za-z0-9_]", "_", clean_name)
+        tf_address = f"google_bigquery_dataset.{tf_name}"
+
+        # Load starter code from terraform_starters/gcp/bigquery_dataset/
+        starter_file = STARTERS_DIR / "gcp" / "bigquery_dataset" / "dataset.tf"
+        if not starter_file.is_file():
+            starter_file = STARTERS_DIR / "gcp" / "bigquery_dataset" / "bigquery_dataset.tf"
+        if starter_file.is_file():
+            template = starter_file.read_text(encoding="utf-8")
+            template_lines = [l for l in template.splitlines() if not l.startswith("#")]
+            template = "\n".join(template_lines).strip()
+            rendered = (
+                template.replace('"requested"', f'"{tf_name}"')
+                .replace("{{tf_name}}", tf_name)
+                .replace('var.resource_config["dataset_id"]', f'"{clean_name}"')
+                .replace("{{dataset_id}}", clean_name)
+                .replace("var.project_id", f'"{clean_project}"')
+                .replace("{{project_id}}", clean_project)
+                .replace("var.location", f'"{clean_location}"')
+                .replace("{{location}}", clean_location)
+                .strip()
+            )
         else:
-            if line.startswith("# "):
-                new_lines.append(line[2:])
-            elif line.startswith("#"):
-                new_lines.append(line[1:])
+            rendered = f"""resource "google_bigquery_dataset" "{tf_name}" {{
+  dataset_id = "{clean_name}"
+  project    = "{clean_project}"
+  location   = "{clean_location}"
+}}"""
+
+        hcl = f"# --- START: {tf_address} ---\n{rendered}\n# --- END: {tf_address} ---"
+        return hcl, tf_name, tf_address
+
+    elif resource_type == "gcp.bigquery_table":
+        dataset_id = str(config.get("dataset_id", "")).strip()
+        combined = f"{dataset_id}_{clean_name}"
+        tf_name = re.sub(r"[^A-Za-z0-9_]", "_", combined)
+        tf_address = f"google_bigquery_table.{tf_name}"
+
+        schema_val = config.get("schema")
+        schema_json_raw = ""
+        schema_attr_fallback = ""
+        if schema_val:
+            if isinstance(schema_val, (dict, list)):
+                schema_json = json.dumps(schema_val, indent=2)
             else:
-                new_lines.append(line)
+                schema_json = str(schema_val).strip()
+            if schema_json.lower() not in ("", "none", "null", "skip", "no"):
+                schema_json_raw = f"<<EOF\n{schema_json}\nEOF"
+                schema_attr_fallback = f"\n  schema = <<EOF\n{schema_json}\nEOF\n"
+
+        # Load starter code from terraform_starters/gcp/bigquery_table/
+        starter_file = STARTERS_DIR / "gcp" / "bigquery_table" / "table.tf"
+        if not starter_file.is_file():
+            starter_file = STARTERS_DIR / "gcp" / "bigquery_table" / "bigquery_table.tf"
+        if starter_file.is_file():
+            template = starter_file.read_text(encoding="utf-8")
+            template_lines = [l for l in template.splitlines() if not l.startswith("#")]
+            template = "\n".join(template_lines).strip()
+            rendered = (
+                template.replace('"requested"', f'"{tf_name}"')
+                .replace("{{tf_name}}", tf_name)
+                .replace('var.resource_config["dataset_id"]', f'"{dataset_id}"')
+                .replace("{{dataset_id}}", dataset_id)
+                .replace('var.resource_config["table_id"]', f'"{clean_name}"')
+                .replace("{{table_id}}", clean_name)
+                .replace("var.project_id", f'"{clean_project}"')
+                .replace("{{project_id}}", clean_project)
+                .replace('lookup(var.resource_config, "schema", null)', schema_json_raw if schema_json_raw else "null")
+                .replace("{{schema_attr}}", schema_attr_fallback)
+                .strip()
+            )
+            if not schema_json_raw:
+                rendered = "\n".join(
+                    line for line in rendered.splitlines()
+                    if not line.strip().startswith("schema = null")
+                )
+        else:
+            rendered = f"""resource "google_bigquery_table" "{tf_name}" {{
+  project             = "{clean_project}"
+  dataset_id          = "{dataset_id}"
+  table_id            = "{clean_name}"
+  deletion_protection = false{schema_attr_fallback}
+}}"""
+
+        hcl = f"# --- START: {tf_address} ---\n{rendered}\n# --- END: {tf_address} ---"
+        return hcl, tf_name, tf_address
+
+    else:
+        raise ValueError(f"Unsupported resource type: {resource_type}")
+
+
+def _upsert_resource_block(file_path: Path, tf_address: str, new_block: str) -> None:
+    """Insert or replace a resource block in a shared .tf file."""
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+    if not file_path.is_file():
+        file_path.write_text(f"# Managed by Agentic Terraform as a Service (TaaS)\n\n{new_block}\n", encoding="utf-8")
+        return
+
+    content = file_path.read_text(encoding="utf-8")
+    lines = content.splitlines()
+
+    start_marker = f"# --- START: {tf_address}"
+    end_marker = f"# --- END: {tf_address}"
+
+    start_idx = None
+    end_idx = None
+
+    for i, line in enumerate(lines):
+        if line.startswith(start_marker):
+            start_idx = i
+        elif line.startswith(end_marker) and start_idx is not None:
+            end_idx = i
+            break
+
+    # If markers not found, search for header e.g. resource "google_bigquery_dataset" "tform"
+    if start_idx is None or end_idx is None:
+        parts = tf_address.split(".", 1)
+        if len(parts) == 2:
+            r_type, r_name = parts
+            target_type = f'resource "{r_type}"'
+            target_name = f'"{r_name}"'
+            for i, line in enumerate(lines):
+                if target_type in line and target_name in line:
+                    start_idx = i
+                    brace_count = 0
+                    for j in range(i, len(lines)):
+                        brace_count += lines[j].count("{") - lines[j].count("}")
+                        if brace_count == 0 and "{" in lines[i]:
+                            end_idx = j
+                            break
+                    break
+
+    if start_idx is not None and end_idx is not None:
+        before = lines[:start_idx]
+        after = lines[end_idx + 1 :]
+        updated = "\n".join(before).rstrip() + "\n\n" + new_block.strip() + "\n\n" + "\n".join(after).lstrip()
+        file_path.write_text(updated.strip() + "\n", encoding="utf-8")
+        return
+
+    # Append to file
+    updated = content.rstrip() + "\n\n" + new_block.strip() + "\n"
+    file_path.write_text(updated, encoding="utf-8")
+
+
+def _toggle_resource_block_in_file(file_path: Path, tf_address: str, comment_out: bool) -> bool:
+    """Comment out or uncomment a specific resource block within a shared .tf file.
+
+    When comment_out=True:
+        Adds '# ' before active lines and marks header as '[DEACTIVATED]'.
+    When comment_out=False:
+        Removes '# ' and restores active header marker.
+    """
+    if not file_path.is_file():
+        return False
+
+    content = file_path.read_text(encoding="utf-8")
+    lines = content.splitlines()
+
+    start_marker = f"# --- START: {tf_address}"
+    end_marker = f"# --- END: {tf_address}"
+
+    start_idx = None
+    end_idx = None
+
+    for i, line in enumerate(lines):
+        if line.startswith(start_marker):
+            start_idx = i
+        elif line.startswith(end_marker) and start_idx is not None:
+            end_idx = i
+            break
+
+    # Fallback to header search
+    if start_idx is None or end_idx is None:
+        parts = tf_address.split(".", 1)
+        if len(parts) == 2:
+            r_type, r_name = parts
+            target_type = f'resource "{r_type}"'
+            target_name = f'"{r_name}"'
+            for i, line in enumerate(lines):
+                if target_type in line and target_name in line:
+                    start_idx = i
+                    brace_count = 0
+                    for j in range(i, len(lines)):
+                        brace_count += lines[j].count("{") - lines[j].count("}")
+                        if brace_count == 0 and "{" in lines[i]:
+                            end_idx = j
+                            break
+                    break
+
+    if start_idx is None:
+        return False
+    if end_idx is None:
+        end_idx = len(lines) - 1
+
+    new_lines = []
+    for i, line in enumerate(lines):
+        if start_idx <= i <= end_idx:
+            if line.startswith(start_marker):
+                new_lines.append(f"{start_marker} [DEACTIVATED] ---" if comment_out else f"{start_marker} ---")
+                continue
+            if line.startswith(end_marker):
+                new_lines.append(f"{end_marker} ---")
+                continue
+
+            stripped = line.strip()
+            if comment_out:
+                if stripped and not stripped.startswith("#"):
+                    new_lines.append(f"# {line}")
+                else:
+                    new_lines.append(line)
+            else:
+                if line.startswith("# "):
+                    new_lines.append(line[2:])
+                elif line.startswith("#"):
+                    new_lines.append(line[1:])
+                else:
+                    new_lines.append(line)
+        else:
+            new_lines.append(line)
 
     file_path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+    return True
+
+
+TERRAFORM_VERSION = "1.9.8"
+
+
+def ensure_terraform_binary() -> str | None:
+    """Ensure a working Terraform binary exists, auto-installing if missing or broken.
+
+    1. Checks if terraform is available on PATH or in standard paths:
+       - ~/.local/bin/terraform (persistent across Cloud Shell restarts)
+       - /usr/local/bin/terraform
+       - /usr/bin/terraform
+    2. If found, tests execution (`terraform version`).
+    3. If missing or broken, downloads and installs Terraform v1.9.8 into
+       ~/.local/bin/terraform using Python standard library (no sudo required).
+    4. Ensures ~/.local/bin is in os.environ["PATH"] and maintains symlinks to /usr/bin/terraform.
+    """
+    user_bin = Path.home() / ".local" / "bin"
+    user_bin_str = str(user_bin.resolve())
+
+    # Ensure ~/.local/bin is on Python process PATH
+    current_path = os.environ.get("PATH", "")
+    if user_bin_str not in current_path.split(os.pathsep):
+        os.environ["PATH"] = f"{user_bin_str}{os.pathsep}{current_path}"
+
+    binary_name = "terraform.exe" if os.name == "nt" else "terraform"
+    target_binary = user_bin / binary_name
+
+    candidates = [
+        target_binary,
+        Path("/usr/local/bin/terraform"),
+        Path("/usr/bin/terraform"),
+        Path.home() / "bin" / binary_name,
+    ]
+
+    which_path = shutil.which("terraform")
+    if which_path:
+        candidates.insert(0, Path(which_path))
+
+    for candidate in candidates:
+        if candidate.is_file() and (os.name == "nt" or os.access(candidate, os.X_OK)):
+            try:
+                test = subprocess.run(
+                    [str(candidate), "version"],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    timeout=5,
+                    check=False,
+                )
+                if test.returncode == 0:
+                    # If this is the persistent ~/.local/bin binary, ensure /usr/bin symlinks exist
+                    if candidate == target_binary and os.name != "nt":
+                        for sys_target in ["/usr/bin/terraform", "/usr/local/bin/terraform"]:
+                            if not Path(sys_target).is_file():
+                                try:
+                                    subprocess.run(
+                                        ["sudo", "ln", "-sf", str(candidate), sys_target],
+                                        stderr=subprocess.DEVNULL,
+                                        stdout=subprocess.DEVNULL,
+                                        timeout=2,
+                                        check=False,
+                                    )
+                                except Exception:
+                                    pass
+                    return str(candidate.resolve())
+            except Exception:
+                continue
+
+    # Auto-install Terraform into ~/.local/bin/terraform
+    import platform
+    import urllib.request
+    import zipfile
+
+    system = platform.system().lower()
+    machine = platform.machine().lower()
+
+    os_name = "windows" if "windows" in system else ("darwin" if "darwin" in system else "linux")
+    arch = "arm64" if ("arm" in machine or "aarch64" in machine) else "amd64"
+
+    url = (
+        f"https://releases.hashicorp.com/terraform/{TERRAFORM_VERSION}/"
+        f"terraform_{TERRAFORM_VERSION}_{os_name}_{arch}.zip"
+    )
+
+    print(f"\n[TaaS] Terraform not found. Auto-installing Terraform v{TERRAFORM_VERSION} to {user_bin}...")
+    try:
+        user_bin.mkdir(parents=True, exist_ok=True)
+        zip_path = user_bin / f"terraform_{TERRAFORM_VERSION}.zip"
+
+        urllib.request.urlretrieve(url, zip_path)
+
+        with zipfile.ZipFile(zip_path, "r") as zip_ref:
+            zip_ref.extractall(user_bin)
+
+        zip_path.unlink(missing_ok=True)
+
+        if os.name != "windows":
+            target_binary.chmod(0o755)
+            for sys_target in ["/usr/bin/terraform", "/usr/local/bin/terraform"]:
+                try:
+                    subprocess.run(
+                        ["sudo", "ln", "-sf", str(target_binary), sys_target],
+                        stderr=subprocess.DEVNULL,
+                        stdout=subprocess.DEVNULL,
+                        timeout=2,
+                        check=False,
+                    )
+                except Exception:
+                    pass
+
+        print(f"[TaaS] ✓ Terraform v{TERRAFORM_VERSION} automatically installed at: {target_binary}")
+        return str(target_binary.resolve())
+    except Exception as exc:
+        print(f"[TaaS Error] Failed to auto-install Terraform: {exc}")
+        return None
 
 
 def _get_terraform_binary() -> str | None:
-    """Locate the Terraform executable on PATH or standard installation locations."""
-    which_path = shutil.which("terraform")
-    if which_path and Path(which_path).is_file():
-        return which_path
-    for candidate in [
-        "/usr/local/bin/terraform",
-        "/usr/bin/terraform",
-        Path.home() / ".local" / "bin" / "terraform",
-        Path.home() / "bin" / "terraform",
-    ]:
-        p = Path(candidate)
-        if p.is_file() and os.access(p, os.X_OK):
-            return str(p)
-    return None
+    """Locate or automatically install the Terraform executable."""
+    return ensure_terraform_binary()
 
 
 def _run_terraform(
@@ -323,59 +696,54 @@ def generate_resource_files(
         }
 
     errors = _validate_inputs(project_id, location, resource_name)
+    if normalized_type == "gcp.bigquery_table":
+        ds_id = str((config or {}).get("dataset_id", "")).strip()
+        if not ds_id or not re.fullmatch(r"[A-Za-z0-9_]{1,1024}", ds_id):
+            errors.append("BigQuery table requires a valid 'dataset_id' in config (e.g. config={'dataset_id': 'dataset_name'}).")
+
+        schema_val = (config or {}).get("schema")
+        if schema_val is not None:
+            if isinstance(schema_val, str):
+                s_strip = schema_val.strip()
+                if s_strip.lower() not in ("", "none", "null", "skip", "no"):
+                    try:
+                        parsed = json.loads(s_strip)
+                        if not isinstance(parsed, (list, dict)):
+                            errors.append("BigQuery table schema must be a JSON array of column definitions (e.g. '[{\"name\": \"id\", \"type\": \"STRING\"}]').")
+                    except json.JSONDecodeError as err:
+                        errors.append(f"BigQuery table schema must be valid JSON: {err}")
+            elif not isinstance(schema_val, (list, dict)):
+                errors.append("BigQuery table schema must be a JSON string or list of column definitions.")
     if errors:
         return {"status": "INVALID", "errors": errors}
 
     spec = SUPPORTED_RESOURCES[normalized_type]
-    starter_dir = spec["starter_dir"]
     primary_tf_name = spec["primary_tf"]
-    primary_tf = starter_dir / primary_tf_name
 
-    starter_files = [
-        COMMON_STARTER_DIR / "main.tf",
-        COMMON_STARTER_DIR / "variables.tf",
-        primary_tf,
-    ]
-    missing = [str(p) for p in starter_files if not p.is_file()]
-    if missing:
-        return {
-            "status": "ERROR",
-            "message": f"Missing approved Terraform starter file(s): {', '.join(missing)}",
-        }
+    output_dir = GCP_ARTIFACTS_DIR
+    output_dir.mkdir(parents=True, exist_ok=True)
+    state_bucket = os.getenv("TAAS_STATE_BUCKET", "").strip()
+
+    # 1. Ensure common artifacts (main.tf, variables.tf, terraform.tfvars, backend.tfvars)
+    _ensure_common_artifacts(output_dir, project_id, location, state_bucket)
+
+    # 2. Build resource HCL block
+    hcl_block, tf_name, tf_address = _build_resource_hcl(
+        resource_type=normalized_type,
+        resource_name=resource_name,
+        project_id=project_id,
+        location=location,
+        config=config,
+    )
+
+    primary_tf = output_dir / primary_tf_name
+
+    # 3. Upsert resource block into dataset.tf or table.tf
+    _upsert_resource_block(primary_tf, tf_address, hcl_block)
 
     request_id = str(uuid4())
-    # Deterministic directory per resource so deactivation and recreation find it easily
-    folder_name = f"{spec['provider']}_{spec['short_name']}_{project_id}_{resource_name}"
-    output_dir = ARTIFACTS_DIR / folder_name
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    print(f"\n[TaaS] Generating artifacts for {normalized_type} '{resource_name}' in project '{project_id}'...")
+    print(f"\n[TaaS] Adding {normalized_type} '{resource_name}' to '{primary_tf.name}' in project '{project_id}'...")
     print(f"[TaaS] Artifact directory: {output_dir.resolve()}")
-
-    # Copy common and resource-specific starters
-    for starter in starter_files:
-        shutil.copy2(starter, output_dir / starter.name)
-
-    # Prepare resource_config map for terraform.tfvars
-    res_config = dict(config or {})
-    res_config[spec["name_param"]] = resource_name
-
-    tfvars_content = (
-        f"project_id = {json.dumps(project_id.strip())}\n"
-        f"location   = {json.dumps(location.strip())}\n"
-        f"resource_config = {json.dumps(res_config, indent=2)}\n"
-    )
-    (output_dir / "terraform.tfvars").write_text(tfvars_content, encoding="utf-8")
-
-    # Write backend.tfvars so manual CLI operations work effortlessly (terraform init -backend-config=backend.tfvars)
-    state_bucket = os.getenv("TAAS_STATE_BUCKET", "").strip()
-    prefix = f"taas/{project_id.strip()}/{normalized_type.replace('.', '/')}/{resource_name.strip()}"
-    if state_bucket:
-        backend_content = (
-            f'bucket = "{state_bucket}"\n'
-            f'prefix = "{prefix}"\n'
-        )
-        (output_dir / "backend.tfvars").write_text(backend_content, encoding="utf-8")
 
     record = {
         "request_id": request_id,
@@ -384,12 +752,13 @@ def generate_resource_files(
         "resource_name": resource_name.strip(),
         "project_id": project_id.strip(),
         "location": location.strip(),
-        "resource_config": res_config,
+        "resource_config": dict(config or {}),
         "artifact_directory": str(output_dir.resolve()),
-        "primary_tf_file": str((output_dir / primary_tf_name).resolve()),
-        "expected_address": spec["expected_address"],
+        "primary_tf_file": str(primary_tf.resolve()),
+        "expected_address": tf_address,
+        "tf_resource_name": tf_name,
         "status": "ARTIFACTS_READY",
-        "status_message": "Terraform artifacts generated and ready for planning.",
+        "status_message": f"Resource block '{tf_address}' ready for planning in {primary_tf_name}.",
         "created_at": _now(),
         "updated_at": _now(),
     }
@@ -405,12 +774,12 @@ def generate_resource_files(
         "files": [
             str(output_dir / "main.tf"),
             str(output_dir / "variables.tf"),
-            str(output_dir / primary_tf_name),
+            str(primary_tf),
             str(output_dir / "terraform.tfvars"),
         ],
         "message": (
-            f"Terraform files for {spec['description']} '{resource_name}' generated under "
-            f"'{output_dir.name}'. Ready to run Terraform plan."
+            f"Terraform resource '{tf_address}' added to '{primary_tf_name}' under 'artifacts/gcp'. "
+            "Ready to run Terraform plan."
         ),
     }
 
@@ -441,8 +810,8 @@ def plan_resource(request_id: str) -> dict:
 
     _set_status(record, "PLANNING", "Terraform plan is being generated.")
 
-    # Unique prefix per resource keeps states isolated within the project state bucket
-    prefix = f"taas/{record['project_id']}/{record['resource_type'].replace('.', '/')}/{record['resource_name']}"
+    # Project-scoped state prefix keeps all resources for this project tracked together
+    prefix = f"taas/{record['project_id']}/gcp"
 
     print(f"\n[TaaS] Starting planning for Request ID: {request_id}")
     print(f"[TaaS] Resource: {record.get('resource_type')} '{record.get('resource_name')}' (action: {record.get('action')})")
@@ -584,7 +953,11 @@ def plan_resource(request_id: str) -> dict:
     }
 
 
-def apply_resource(request_id: str, plan_sha256: str) -> dict:
+def apply_resource(
+    request_id: str,
+    plan_sha256: str,
+    confirmation: Literal["apply", "dont apply"] = "apply",
+) -> dict:
     """Apply the approved Terraform plan.
 
     Gated by ADK tool confirmation (`require_confirmation=True`).
@@ -593,10 +966,23 @@ def apply_resource(request_id: str, plan_sha256: str) -> dict:
     Args:
         request_id: UUID of the request.
         plan_sha256: SHA-256 digest of the plan returned during planning.
+        confirmation: Confirmation decision ('apply' to proceed, 'dont apply' to cancel).
 
     Returns:
         dict: Apply summary and status.
     """
+    if confirmation == "dont apply":
+        try:
+            record = _load_record(request_id)
+            _set_status(record, "REJECTED", "User selected 'dont apply'. Terraform apply cancelled.")
+        except Exception:
+            pass
+        return {
+            "status": "REJECTED",
+            "request_id": request_id,
+            "message": "User selected 'dont apply'. The Terraform plan was cancelled and no changes were made to your cloud infrastructure.",
+        }
+
     try:
         record = _load_record(request_id)
         working_directory = Path(record["artifact_directory"]).resolve()
@@ -684,6 +1070,7 @@ def plan_deactivate_resource(
     project_id: str,
     resource_name: str,
     resource_type: str = "gcp.bigquery_dataset",
+    dataset_id: str | None = None,
 ) -> dict:
     """Comment out a resource's Terraform code and generate a destroy plan.
 
@@ -692,14 +1079,20 @@ def plan_deactivate_resource(
 
     Args:
         project_id: The Google Cloud project ID.
-        resource_name: Identifier for the resource (e.g. 'sales_data').
+        resource_name: Identifier for the resource (e.g. 'sales_data' or table_id).
         resource_type: Resource type (default: 'gcp.bigquery_dataset').
+        dataset_id: Optional parent dataset ID for tables.
 
     Returns:
         dict: Destruction plan summary awaiting approval.
     """
     normalized_type = _normalize_resource_type(resource_type)
-    matching = _find_records(project_id=project_id, resource_name=resource_name, resource_type=normalized_type)
+    matching = _find_records(
+        project_id=project_id,
+        resource_name=resource_name,
+        resource_type=normalized_type,
+        dataset_id=dataset_id,
+    )
     if not matching:
         return {
             "status": "NOT_FOUND",
@@ -707,23 +1100,57 @@ def plan_deactivate_resource(
         }
 
     active_record = matching[0]
-    tf_file = Path(active_record["primary_tf_file"])
+    spec = SUPPORTED_RESOURCES[normalized_type]
+    tf_file = GCP_ARTIFACTS_DIR / spec["primary_tf"]
     if not tf_file.is_file():
+        alt_path = Path(active_record.get("primary_tf_file", ""))
+        if alt_path.is_file():
+            tf_file = alt_path
+
+    expected_address = active_record.get("expected_address")
+    if not expected_address or expected_address.endswith(".requested"):
+        if normalized_type == "gcp.bigquery_table":
+            ds_id = dataset_id or active_record.get("resource_config", {}).get("dataset_id", "")
+            tf_name = re.sub(r"[^A-Za-z0-9_]", "_", f"{ds_id}_{resource_name.strip()}")
+            expected_address = f"google_bigquery_table.{tf_name}"
+        else:
+            tf_name = re.sub(r"[^A-Za-z0-9_]", "_", resource_name.strip())
+            expected_address = f"google_bigquery_dataset.{tf_name}"
+
+    # Ensure runtime artifacts directory and common files exist
+    output_dir = GCP_ARTIFACTS_DIR
+    state_bucket = os.getenv("TAAS_STATE_BUCKET", "").strip()
+    _ensure_common_artifacts(output_dir, project_id, active_record.get("location", "asia-south2"), state_bucket)
+
+    # If the file does not exist yet, initialize it so it can be commented out
+    if not tf_file.is_file():
+        hcl_block, _, _ = _build_resource_hcl(
+            resource_type=normalized_type,
+            resource_name=resource_name,
+            project_id=project_id,
+            location=active_record.get("location", "asia-south2"),
+            config=active_record.get("resource_config"),
+        )
+        _upsert_resource_block(tf_file, expected_address, hcl_block)
+
+    # 1. Comment out the resource block in the shared .tf file
+    toggled = _toggle_resource_block_in_file(tf_file, expected_address, comment_out=True)
+    if not toggled:
         return {
             "status": "ERROR",
-            "message": f"Primary Terraform file '{tf_file}' not found.",
+            "message": f"Could not find resource block '{expected_address}' in '{tf_file.name}' to comment out.",
         }
-
-    # 1. Comment out the resource block in the .tf file
-    _toggle_tf_content(tf_file, comment_out=True)
 
     # 2. Create a new deactivation request record
     deact_id = str(uuid4())
     new_record = dict(active_record)
     new_record["request_id"] = deact_id
     new_record["action"] = "DEACTIVATE"
+    new_record["artifact_directory"] = str(tf_file.parent.resolve())
+    new_record["primary_tf_file"] = str(tf_file.resolve())
+    new_record["expected_address"] = expected_address
     new_record["status"] = "ARTIFACTS_READY"
-    new_record["status_message"] = "Resource configuration commented out. Ready to plan deactivation."
+    new_record["status_message"] = f"Resource block '{expected_address}' commented out. Ready to plan deactivation."
     new_record["created_at"] = _now()
     new_record["updated_at"] = _now()
     _save_record(new_record)
@@ -736,19 +1163,26 @@ def plan_recreate_resource(
     project_id: str,
     resource_name: str,
     resource_type: str = "gcp.bigquery_dataset",
+    dataset_id: str | None = None,
 ) -> dict:
     """Uncomment a previously deactivated resource and generate a create plan.
 
     Args:
         project_id: The Google Cloud project ID.
-        resource_name: Identifier for the resource (e.g. 'sales_data').
+        resource_name: Identifier for the resource (e.g. 'sales_data' or table_id).
         resource_type: Resource type (default: 'gcp.bigquery_dataset').
+        dataset_id: Optional parent dataset ID for tables.
 
     Returns:
         dict: Creation plan summary awaiting approval.
     """
     normalized_type = _normalize_resource_type(resource_type)
-    matching = _find_records(project_id=project_id, resource_name=resource_name, resource_type=normalized_type)
+    matching = _find_records(
+        project_id=project_id,
+        resource_name=resource_name,
+        resource_type=normalized_type,
+        dataset_id=dataset_id,
+    )
     if not matching:
         return {
             "status": "NOT_FOUND",
@@ -756,20 +1190,49 @@ def plan_recreate_resource(
         }
 
     active_record = matching[0]
-    tf_file = Path(active_record["primary_tf_file"])
+    spec = SUPPORTED_RESOURCES[normalized_type]
+    tf_file = GCP_ARTIFACTS_DIR / spec["primary_tf"]
+    if not tf_file.is_file():
+        alt_path = Path(active_record.get("primary_tf_file", ""))
+        if alt_path.is_file():
+            tf_file = alt_path
+
+    expected_address = active_record.get("expected_address")
+    if not expected_address or expected_address.endswith(".requested"):
+        if normalized_type == "gcp.bigquery_table":
+            ds_id = dataset_id or active_record.get("resource_config", {}).get("dataset_id", "")
+            tf_name = re.sub(r"[^A-Za-z0-9_]", "_", f"{ds_id}_{resource_name.strip()}")
+            expected_address = f"google_bigquery_table.{tf_name}"
+        else:
+            tf_name = re.sub(r"[^A-Za-z0-9_]", "_", resource_name.strip())
+            expected_address = f"google_bigquery_dataset.{tf_name}"
+
+    # Ensure runtime artifacts directory and common files exist
+    output_dir = GCP_ARTIFACTS_DIR
+    state_bucket = os.getenv("TAAS_STATE_BUCKET", "").strip()
+    _ensure_common_artifacts(output_dir, project_id, active_record.get("location", "asia-south2"), state_bucket)
+
     if not tf_file.is_file():
         return {"status": "ERROR", "message": f"Primary Terraform file '{tf_file}' not found."}
 
-    # 1. Uncomment the resource block in the .tf file
-    _toggle_tf_content(tf_file, comment_out=False)
+    # 1. Uncomment the resource block in the shared .tf file
+    toggled = _toggle_resource_block_in_file(tf_file, expected_address, comment_out=False)
+    if not toggled:
+        return {
+            "status": "ERROR",
+            "message": f"Could not find resource block '{expected_address}' in '{tf_file.name}' to uncomment.",
+        }
 
     # 2. Create a recreation request record
     recreate_id = str(uuid4())
     new_record = dict(active_record)
     new_record["request_id"] = recreate_id
     new_record["action"] = "RECREATE"
+    new_record["artifact_directory"] = str(tf_file.parent.resolve())
+    new_record["primary_tf_file"] = str(tf_file.resolve())
+    new_record["expected_address"] = expected_address
     new_record["status"] = "ARTIFACTS_READY"
-    new_record["status_message"] = "Resource configuration restored. Ready to plan recreation."
+    new_record["status_message"] = f"Resource block '{expected_address}' restored. Ready to plan recreation."
     new_record["created_at"] = _now()
     new_record["updated_at"] = _now()
     _save_record(new_record)
@@ -856,8 +1319,78 @@ async def _verify_bigquery(record: dict) -> dict:
     }
 
 
+async def _verify_bigquery_table(record: dict) -> dict:
+    """Verify BigQuery table existence or deletion."""
+    from google.api_core.exceptions import NotFound
+    from google.cloud import bigquery
+
+    client = bigquery.Client(project=record["project_id"])
+    dataset_id = record.get("resource_config", {}).get("dataset_id")
+    table_id = record.get("resource_name")
+    table_ref = f"{record['project_id']}.{dataset_id}.{table_id}"
+    is_deactivation = record.get("action") == "DEACTIVATE"
+    action_label = "deletion" if is_deactivation else "creation"
+
+    print(f"\n[TaaS] Verifying {action_label} for table '{table_ref}' via BigQuery API...")
+
+    for attempt in range(1, VERIFY_ATTEMPTS + 1):
+        print(f"[TaaS] BigQuery API verification attempt {attempt}/{VERIFY_ATTEMPTS}...")
+        try:
+            table = await asyncio.to_thread(client.get_table, table_ref)
+            print(f"[TaaS] Found table '{table_ref}' (type: {table.table_type})")
+            if is_deactivation:
+                if attempt < VERIFY_ATTEMPTS:
+                    await asyncio.sleep(VERIFY_DELAY_SECONDS)
+                    continue
+                _set_status(record, "DEACTIVATE_UNCONFIRMED", "Table still exists in BigQuery.")
+                return {
+                    "status": "VERIFYING",
+                    "message": "Table is still visible in BigQuery; deletion is still processing.",
+                }
+
+            _set_status(record, "READY", "Table verified and ready in BigQuery.")
+            schema_fields = [f"{f.name} ({f.field_type})" for f in (table.schema or [])]
+            schema_info = f" with columns: {', '.join(schema_fields)}" if schema_fields else " (without schema)"
+            return {
+                "status": "READY",
+                "project_id": record["project_id"],
+                "dataset_id": dataset_id,
+                "resource_name": table_id,
+                "table_ref": table_ref,
+                "schema": schema_fields,
+                "message": f"BigQuery table '{table_id}' in dataset '{dataset_id}' is confirmed READY in project '{record['project_id']}'{schema_info}.",
+            }
+        except NotFound:
+            if is_deactivation:
+                _set_status(record, "DELETED", "Table confirmed deleted from BigQuery. Code preserved.")
+                return {
+                    "status": "DELETED",
+                    "project_id": record["project_id"],
+                    "dataset_id": dataset_id,
+                    "resource_name": table_id,
+                    "message": (
+                        f"BigQuery table '{table_id}' in dataset '{dataset_id}' has been confirmed DELETED from Google Cloud. "
+                        "The Terraform code is preserved in artifacts for future recreation."
+                    ),
+                }
+
+            if attempt < VERIFY_ATTEMPTS:
+                await asyncio.sleep(VERIFY_DELAY_SECONDS)
+
+    if is_deactivation:
+        return {
+            "status": "VERIFYING",
+            "message": "Table deletion not yet reflected in BigQuery. Please retry verification shortly.",
+        }
+    return {
+        "status": "VERIFYING",
+        "message": "Table is not yet visible in BigQuery. Please retry verification shortly.",
+    }
+
+
 VERIFIERS = {
     "gcp.bigquery_dataset": _verify_bigquery,
+    "gcp.bigquery_table": _verify_bigquery_table,
 }
 
 
@@ -905,27 +1438,70 @@ def get_request_status(request_id: str) -> dict:
     }
 
 
-def list_taas_resources(project_id: str | None = None) -> dict:
-    """List all managed cloud resources and their latest statuses."""
+def list_taas_resources(
+    project_id: str | None = None,
+    include_deactivated: bool = False,
+) -> dict:
+    """List active, successfully created cloud resources.
+
+    Filters out failed planning attempts (PLAN_FAILED), failed applies (APPLY_FAILED),
+    unapplied drafts, and deleted resources.
+
+    Args:
+        project_id: Optional filter for a specific Google Cloud project ID.
+        include_deactivated: If True, also includes preserved/deactivated resources.
+
+    Returns:
+        dict: List of active resources and count.
+    """
     records = _find_records(project_id=project_id)
-    # Deduplicate by (project_id, resource_type, resource_name) taking most recent
-    seen = {}
+
+    # Group all request records by (project_id, resource_type, resource_name)
+    grouped: dict[tuple, list[dict]] = {}
     for r in records:
         key = (r.get("project_id"), r.get("resource_type"), r.get("resource_name"))
-        if key not in seen:
-            seen[key] = {
-                "project_id": r.get("project_id"),
-                "resource_type": r.get("resource_type"),
-                "resource_name": r.get("resource_name"),
-                "location": r.get("location"),
-                "status": r.get("status"),
-                "action": r.get("action"),
-                "artifact_directory": r.get("artifact_directory"),
-                "last_updated": r.get("updated_at"),
+        grouped.setdefault(key, []).append(r)
+
+    active_resources = []
+    ACTIVE_STATUSES = {"READY", "APPLIED"}
+    INACTIVE_STATUSES = {"DEACTIVATED"}
+
+    for (p_id, r_type, r_name), rec_list in grouped.items():
+        # Find the latest completed lifecycle status (rec_list is sorted newest-first)
+        latest_valid_record = None
+        for r in rec_list:
+            st = r.get("status")
+            if st in ACTIVE_STATUSES or st in INACTIVE_STATUSES or st == "DELETED":
+                latest_valid_record = r
+                break
+
+        # If the resource never successfully applied (e.g. only PLAN_FAILED or ARTIFACTS_READY), ignore it
+        if not latest_valid_record:
+            continue
+
+        status = latest_valid_record.get("status")
+        if status in ACTIVE_STATUSES or (include_deactivated and status in INACTIVE_STATUSES):
+            res_item = {
+                "project_id": p_id,
+                "resource_type": r_type,
+                "resource_name": r_name,
+                "location": latest_valid_record.get("location"),
+                "status": status,
+                "action": latest_valid_record.get("action"),
+                "artifact_directory": latest_valid_record.get("artifact_directory"),
+                "last_updated": latest_valid_record.get("updated_at"),
             }
+            if "dataset_id" in latest_valid_record.get("resource_config", {}):
+                res_item["dataset_id"] = latest_valid_record["resource_config"]["dataset_id"]
+            active_resources.append(res_item)
 
     return {
         "status": "SUCCESS",
-        "count": len(seen),
-        "resources": list(seen.values()),
+        "count": len(active_resources),
+        "resources": active_resources,
+        "message": (
+            f"Found {len(active_resources)} active resource(s)."
+            if active_resources
+            else "No active resources found in the registry."
+        ),
     }

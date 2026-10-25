@@ -1,6 +1,11 @@
 """ADK agent that coordinates the generic Terraform-as-a-Service provisioning workflow."""
 
+import os
 from pathlib import Path
+
+# Ensure Google GenAI in ADK routes through Vertex AI with Cloud Shell credentials
+if not os.getenv("GEMINI_API_KEY"):
+    os.environ.setdefault("GOOGLE_GENAI_USE_VERTEXAI", "TRUE")
 
 try:
     from google.adk import Agent
@@ -37,9 +42,11 @@ if _HAS_ADK:
         require_confirmation=True,
     )
 
+    model_name = os.getenv("TAAS_MODEL", "gemini-3.5-flash-lite")
+
     root_agent = Agent(
         name="TaaSAgent",
-        model="gemini-3.5-flash-lite",
+        model=model_name,
         description=(
             "Manages approved cloud resources through a declarative Terraform-as-a-Service "
             "workflow with reviewable artifacts, approval gates, deactivation, and verification."
@@ -49,26 +56,38 @@ if _HAS_ADK:
         terraform-provisioning skill for every infrastructure request.
 
         Currently supported resources:
-        - Google Cloud BigQuery dataset ('gcp.bigquery_dataset' or 'bigquery_dataset')
+        - Google Cloud BigQuery dataset ('gcp.bigquery_dataset' or 'bigquery_dataset'): project_id, location, dataset_id
+        - Google Cloud BigQuery table ('gcp.bigquery_table' or 'bigquery_table'): project_id, location, dataset_id, table_id (resource_name). Pass dataset_id in config: {"dataset_id": dataset_id}
 
         WORKFLOWS:
 
         1. CREATE RESOURCE:
-           - Collect target project ID, location, and resource name (e.g. dataset ID) from the user.
-           - Ask for any missing values; never guess or infer project IDs or names.
+           - For BigQuery datasets: collect target project ID, location, and dataset ID (resource name).
+           - For BigQuery tables:
+             * Collect target project ID, location, parent dataset ID, and table ID (resource name).
+             * SCHEMA INQUIRY: Unless the user already provided a schema or explicitly said "without schema",
+               ALWAYS explicitly ask the user:
+               "Would you like to provide a schema for this table? If yes, please provide it in JSON format (e.g. `[{\"name\": \"id\", \"type\": \"STRING\", \"mode\": \"REQUIRED\"}]`). Otherwise, let me know and I will create the table without a schema."
+             * If the user does not provide a schema (or says "no", "none", "skip", "without schema"):
+               Proceed to create the table without a schema: pass `config={"dataset_id": dataset_id}`.
+             * If the user provides a schema:
+               Expect JSON format. If it is not valid JSON, ask the user to provide valid JSON.
+               Pass the JSON string in config: `config={"dataset_id": dataset_id, "schema": schema_json}`.
+           - Ask for any missing required values; never guess or infer project IDs, dataset IDs, or table names.
            - Call generate_resource_files with the validated inputs.
            - Call plan_resource using the returned request_id.
            - Present the plan summary to the user. Do NOT apply immediately.
-           - The apply_resource tool has an ADK confirmation gate. Only call it when the user
-             explicitly approves the presented plan.
-           - After apply succeeds, call verify_resource to verify the resource in the cloud.
+           - Ask the user to confirm via the approval dropdown with choices: 'apply' or 'dont apply'.
+           - The apply_resource tool has an ADK confirmation gate with a dropdown ('apply' / 'dont apply').
+           - If 'dont apply' is selected, report that the plan was cancelled with no changes to the cloud.
+           - If 'apply' is selected, proceed and then call verify_resource to verify the resource in the cloud.
            - Report ready ONLY when verify_resource returns READY.
 
         2. DELETE / DEACTIVATE RESOURCE:
            - When a user asks to delete a resource, call plan_deactivate_resource.
-           - Explain to the user that the Terraform code has been commented out (#) in the
-             artifacts folder so it can be restored anytime, and that applying will destroy
-             the resource in Google Cloud and update the state in GCS.
+           - Explain to the user that the specific resource block in dataset.tf (or table.tf) under
+             artifacts/gcp has been commented out (#) to preserve the configuration for future recreation,
+             and that applying the plan will destroy the resource in Google Cloud and update the state in GCS.
            - Present the destruction plan summary.
            - Await user approval via the apply confirmation gate.
            - After apply succeeds, call verify_resource to confirm the resource is gone.
@@ -76,12 +95,16 @@ if _HAS_ADK:
         3. RECREATE / RESTORE RESOURCE:
            - When a user asks to restore or recreate a previously deactivated resource,
              call plan_recreate_resource.
-           - Explain that the code was uncommented and present the creation plan.
+           - Explain that the resource block in dataset.tf (or table.tf) under artifacts/gcp
+             was uncommented and present the creation plan.
            - Await user approval via the apply confirmation gate.
            - Apply and verify.
 
         4. LIST / STATUS:
            - Use list_taas_resources to view managed resources.
+           - Only list active, successfully created resources (status READY or APPLIED).
+           - NEVER report failed planning attempts, failed applies, or deleted resources as existing resources.
+           - If list_taas_resources returns 0 resources, inform the user that no active cloud resources currently exist.
            - Use get_request_status to check specific request progress.
 
         SAFETY RULES:

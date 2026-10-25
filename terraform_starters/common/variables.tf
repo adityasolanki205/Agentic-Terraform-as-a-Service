@@ -11,6 +11,7 @@ variable "project_id" {
 variable "location" {
   description = "Google Cloud location explicitly provided for this request."
   type        = string
+  default     = "asia-south2"
 
   validation {
     condition     = can(regex("^[A-Za-z0-9]([A-Za-z0-9-]{0,62}[A-Za-z0-9])?$", var.location))
@@ -18,9 +19,3 @@ variable "location" {
   }
 }
 
-# Resource-specific inputs live in one object. Each resource's .tf file reads
-# only the keys it needs, while these common variables stay the same.
-variable "resource_config" {
-  description = "Settings for the one cloud resource requested by the user."
-  type        = map(string)
-}

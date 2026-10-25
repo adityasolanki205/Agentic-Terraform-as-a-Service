@@ -8,27 +8,48 @@ echo "=================================================================="
 echo " Setting up Agentic Terraform as a Service (TaaS)"
 echo "=================================================================="
 
-# 1. Install / Verify Terraform
+# 1. Install / Verify Terraform (Persistent in Cloud Shell $HOME)
 echo "[1/4] Checking Terraform binary..."
-if ! command -v terraform &> /dev/null || ! terraform version &> /dev/null; then
-    echo "  -> Terraform not found or broken. Installing Terraform v1.9.8..."
+USER_BIN="$HOME/.local/bin"
+mkdir -p "$USER_BIN"
+
+if ! grep -q "$USER_BIN" ~/.bashrc 2>/dev/null; then
+    echo "export PATH=\"$USER_BIN:\$PATH\"" >> ~/.bashrc
+fi
+export PATH="$USER_BIN:$PATH"
+
+if [ ! -x "$USER_BIN/terraform" ] && (! command -v terraform &> /dev/null || ! terraform version &> /dev/null); then
+    echo "  -> Installing persistent Terraform v1.9.8 to $USER_BIN..."
     TERRAFORM_VERSION="1.9.8"
     TMP_DIR=$(mktemp -d)
     curl -sLo "${TMP_DIR}/terraform.zip" "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_amd64.zip"
     unzip -q "${TMP_DIR}/terraform.zip" -d "${TMP_DIR}"
     
+    # 1. Install to persistent home directory so it survives Cloud Shell reboots
+    cp "${TMP_DIR}/terraform" "$USER_BIN/terraform"
+    chmod +x "$USER_BIN/terraform"
+    
+    # 2. Also symlink to system directories so any cached shell paths work
     if [ "$(id -u)" -eq 0 ]; then
-        mv "${TMP_DIR}/terraform" /usr/local/bin/terraform
-        cp /usr/local/bin/terraform /usr/bin/terraform 2>/dev/null || true
+        ln -sf "$USER_BIN/terraform" /usr/local/bin/terraform 2>/dev/null || true
+        ln -sf "$USER_BIN/terraform" /usr/bin/terraform 2>/dev/null || true
     else
-        sudo mv "${TMP_DIR}/terraform" /usr/local/bin/terraform
-        sudo cp /usr/local/bin/terraform /usr/bin/terraform 2>/dev/null || true
+        sudo ln -sf "$USER_BIN/terraform" /usr/local/bin/terraform 2>/dev/null || true
+        sudo ln -sf "$USER_BIN/terraform" /usr/bin/terraform 2>/dev/null || true
     fi
     rm -rf "${TMP_DIR}"
     hash -r
-    echo "  ✓ Terraform installed successfully: $(terraform version | head -n 1)"
+    echo "  ✓ Persistent Terraform installed successfully: $($USER_BIN/terraform version | head -n 1)"
 else
-    echo "  ✓ Terraform is already available: $(terraform version | head -n 1)"
+    # Ensure system symlinks and PATH are refreshed
+    if [ -x "$USER_BIN/terraform" ]; then
+        sudo ln -sf "$USER_BIN/terraform" /usr/bin/terraform 2>/dev/null || true
+        sudo ln -sf "$USER_BIN/terraform" /usr/local/bin/terraform 2>/dev/null || true
+        hash -r
+        echo "  ✓ Persistent Terraform is ready: $($USER_BIN/terraform version | head -n 1)"
+    else
+        echo "  ✓ Terraform is already available: $(terraform version | head -n 1)"
+    fi
 fi
 
 # 2. Virtual Environment & Python Dependencies

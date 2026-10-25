@@ -26,12 +26,19 @@ SYSTEM_INSTRUCTION = """
 You are the Terraform-as-a-Service (TaaS) assistant.
 Help users create, manage, deactivate, and recreate approved cloud infrastructure.
 
-Currently supported resource:
+Currently supported resources:
 - Google Cloud BigQuery dataset ('gcp.bigquery_dataset' or 'bigquery_dataset')
+- Google Cloud BigQuery table ('gcp.bigquery_table' or 'bigquery_table')
 
 WORKFLOWS:
 1. CREATE:
-   - Ask for target project ID, location, and dataset ID if not provided.
+   - For BigQuery datasets: collect target project ID, location, and dataset ID (resource name).
+   - For BigQuery tables:
+     * Collect target project ID, location, parent dataset ID, and table ID (resource name).
+     * ALWAYS explicitly ask the user if they want to provide a schema for the table:
+       "Would you like to provide a schema for this table? If yes, please provide it in JSON format. Otherwise, I will create the table without a schema."
+     * If they do not provide a schema (or say "no", "skip", "none", "without schema"): create without schema (config={"dataset_id": dataset_id}).
+     * If they provide a schema: expect it in JSON format and validate it. Pass config={"dataset_id": dataset_id, "schema": schema_json}.
    - Call generate_resource_files.
    - Call plan_resource with the request_id.
    - Present the plan summary and plan SHA256 digest to the user.
@@ -40,19 +47,22 @@ WORKFLOWS:
 
 2. DEACTIVATE / DELETE:
    - When user asks to delete a resource, call plan_deactivate_resource.
-   - Explain that the code is commented out in artifacts to preserve configuration,
+   - Explain that the specific resource block in dataset.tf (or table.tf) under
+     artifacts/gcp has been commented out (#) to preserve configuration,
      and show the destroy plan summary.
    - When the user confirms apply, call apply_resource.
    - Call verify_resource to confirm deletion from Google Cloud.
 
 3. RECREATE:
    - When user asks to recreate, call plan_recreate_resource.
-   - Explain the code was uncommented and show the creation plan.
+   - Explain that the resource block in dataset.tf (or table.tf) under
+     artifacts/gcp was uncommented and show the creation plan.
    - When the user confirms apply, call apply_resource.
    - Call verify_resource to confirm readiness.
 
 4. LIST / STATUS:
-   - Use list_taas_resources to view created resources.
+   - Use list_taas_resources to view created resources. Only report active resources with status READY or APPLIED.
+   - Do not report failed planning attempts or deleted resources as active resources.
    - Use get_request_status to check specific request progress.
 
 Never invent shell commands or raw HCL. Always use the deterministic tools.
@@ -128,15 +138,16 @@ def run_with_genai_sdk():
                         print(" [APPROVAL REQUIRED] Terraform Apply Gate")
                         print(f" Request ID  : {args.get('request_id')}")
                         print(f" Plan Digest : {args.get('plan_sha256')}")
+                        print(" Confirmation Options:")
+                        print("   [1] apply")
+                        print("   [2] dont apply")
                         print("!" * 60)
-                        approval = input(" Approve and execute Terraform apply? (yes/no): ").strip().lower()
-                        if approval not in ("yes", "y"):
-                            tool_result = {
-                                "status": "REJECTED",
-                                "message": "User declined approval for this Terraform apply.",
-                            }
+                        choice = input(" Select decision [apply / dont apply]: ").strip().lower()
+                        if choice in ("1", "apply", "y", "yes"):
+                            args["confirmation"] = "apply"
                         else:
-                            tool_result = apply_resource(**args)
+                            args["confirmation"] = "dont apply"
+                        tool_result = apply_resource(**args)
                     elif fn_name in TOOL_FUNCTIONS:
                         fn = TOOL_FUNCTIONS[fn_name]
                         # Handle async functions like verify_resource

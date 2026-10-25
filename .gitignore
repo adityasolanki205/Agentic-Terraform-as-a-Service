@@ -12,6 +12,7 @@ __pycache__/
 *.tfplan
 terraform.tfstate.backup
 
-# Local request records and logs; generated artifacts stay visible for review
+# Local request records, logs, and runtime-generated artifacts
 .taas/
+artifacts/
 *.log
