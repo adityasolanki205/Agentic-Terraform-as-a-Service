@@ -56,8 +56,11 @@ if _HAS_ADK:
         terraform-provisioning skill for every infrastructure request.
 
         Currently supported resources:
-        - Google Cloud BigQuery dataset ('gcp.bigquery_dataset' or 'bigquery_dataset'): project_id, location, dataset_id
-        - Google Cloud BigQuery table ('gcp.bigquery_table' or 'bigquery_table'): project_id, location, dataset_id, table_id (resource_name). Pass dataset_id in config: {"dataset_id": dataset_id}
+        - Google Cloud BigQuery dataset ('gcp.bigquery_dataset' or 'bigquery_dataset'): project_id, location, dataset_id (resource_name). Managed in dataset.tf.
+        - Google Cloud BigQuery table ('gcp.bigquery_table' or 'bigquery_table'): project_id, location, dataset_id, table_id (resource_name). Pass dataset_id in config: {"dataset_id": dataset_id}. Managed in table.tf.
+        - Google Cloud Storage bucket ('gcp.storage_bucket' or 'storage_bucket'): project_id, location, bucket_name (resource_name). Pass bucket_name in config: {"bucket_name": bucket_name}. Managed in bucket.tf.
+        - Google Cloud Pub/Sub topic ('gcp.pubsub_topic' or 'pubsub_topic'): project_id, topic_name (resource_name), location (default 'global'). Managed in topic.tf.
+        - Google Cloud Pub/Sub subscription ('gcp.pubsub_subscription' or 'pubsub_subscription'): project_id, subscription_name (resource_name), parent topic (pass in config: {"topic": topic_name}). Managed in subscription.tf.
 
         WORKFLOWS:
 
@@ -73,7 +76,15 @@ if _HAS_ADK:
              * If the user provides a schema:
                Expect JSON format. If it is not valid JSON, ask the user to provide valid JSON.
                Pass the JSON string in config: `config={"dataset_id": dataset_id, "schema": schema_json}`.
-           - Ask for any missing required values; never guess or infer project IDs, dataset IDs, or table names.
+           - For Storage buckets:
+             * Collect target project ID, bucket name (resource name), and location (e.g. 'asia-south2', 'US').
+             * Buckets are configured with uniform bucket-level access and object versioning by default.
+           - For Pub/Sub topics:
+             * Collect target project ID and topic name (resource name). Location can default to 'global'.
+           - For Pub/Sub subscriptions:
+             * Collect target project ID, subscription name (resource name), and the parent topic name.
+             * Pass parent topic in config: `config={"topic": topic_name}`. Location can default to 'global'.
+           - Ask for any missing required values; never guess or infer project IDs or resource names.
            - Call generate_resource_files with the validated inputs.
            - Call plan_resource using the returned request_id.
            - Present the plan summary to the user. Do NOT apply immediately.
@@ -85,8 +96,9 @@ if _HAS_ADK:
 
         2. DELETE / DEACTIVATE RESOURCE:
            - When a user asks to delete a resource, call plan_deactivate_resource.
-           - Explain to the user that the specific resource block in dataset.tf (or table.tf) under
-             artifacts/gcp has been commented out (#) to preserve the configuration for future recreation,
+           - Explain to the user that the specific resource block in its shared .tf file
+             (dataset.tf, table.tf, bucket.tf, topic.tf, or subscription.tf) under artifacts/gcp
+             has been commented out (#) to preserve the configuration for future recreation,
              and that applying the plan will destroy the resource in Google Cloud and update the state in GCS.
            - Present the destruction plan summary.
            - Await user approval via the apply confirmation gate.
@@ -95,7 +107,7 @@ if _HAS_ADK:
         3. RECREATE / RESTORE RESOURCE:
            - When a user asks to restore or recreate a previously deactivated resource,
              call plan_recreate_resource.
-           - Explain that the resource block in dataset.tf (or table.tf) under artifacts/gcp
+           - Explain that the resource block in its shared .tf file under artifacts/gcp
              was uncommented and present the creation plan.
            - Await user approval via the apply confirmation gate.
            - Apply and verify.

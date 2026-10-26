@@ -55,6 +55,33 @@ SUPPORTED_RESOURCES = {
         "name_param": "table_id",
         "description": "Google Cloud BigQuery Table",
     },
+    "gcp.storage_bucket": {
+        "provider": "gcp",
+        "short_name": "storage_bucket",
+        "starter_dir": STARTERS_DIR / "gcp" / "storage_bucket",
+        "primary_tf": "bucket.tf",
+        "resource_type_hcl": "google_storage_bucket",
+        "name_param": "bucket_name",
+        "description": "Google Cloud Storage Bucket",
+    },
+    "gcp.pubsub_topic": {
+        "provider": "gcp",
+        "short_name": "pubsub_topic",
+        "starter_dir": STARTERS_DIR / "gcp" / "pubsub_topic",
+        "primary_tf": "topic.tf",
+        "resource_type_hcl": "google_pubsub_topic",
+        "name_param": "topic_name",
+        "description": "Google Cloud Pub/Sub Topic",
+    },
+    "gcp.pubsub_subscription": {
+        "provider": "gcp",
+        "short_name": "pubsub_subscription",
+        "starter_dir": STARTERS_DIR / "gcp" / "pubsub_subscription",
+        "primary_tf": "subscription.tf",
+        "resource_type_hcl": "google_pubsub_subscription",
+        "name_param": "subscription_name",
+        "description": "Google Cloud Pub/Sub Subscription",
+    },
 }
 
 
@@ -64,8 +91,23 @@ def _now() -> str:
 
 
 def _normalize_resource_type(resource_type: str) -> str:
-    """Normalize resource type names (e.g. 'bigquery_dataset' -> 'gcp.bigquery_dataset')."""
+    """Normalize resource type names (e.g. 'storage_bucket' -> 'gcp.storage_bucket')."""
     cleaned = resource_type.strip().lower()
+    aliases = {
+        "storage_bucket": "gcp.storage_bucket",
+        "gcs_bucket": "gcp.storage_bucket",
+        "bucket": "gcp.storage_bucket",
+        "pubsub_topic": "gcp.pubsub_topic",
+        "topic": "gcp.pubsub_topic",
+        "pubsub_subscription": "gcp.pubsub_subscription",
+        "subscription": "gcp.pubsub_subscription",
+        "bigquery_dataset": "gcp.bigquery_dataset",
+        "dataset": "gcp.bigquery_dataset",
+        "bigquery_table": "gcp.bigquery_table",
+        "table": "gcp.bigquery_table",
+    }
+    if cleaned in aliases:
+        return aliases[cleaned]
     if cleaned in SUPPORTED_RESOURCES:
         return cleaned
     for key, spec in SUPPORTED_RESOURCES.items():
@@ -281,6 +323,117 @@ def _build_resource_hcl(
   deletion_protection = false{schema_attr_fallback}
 }}"""
 
+        hcl = f"# --- START: {tf_address} ---\n{rendered}\n# --- END: {tf_address} ---"
+        return hcl, tf_name, tf_address
+
+    elif resource_type == "gcp.storage_bucket":
+        bucket_name = clean_name.lower()
+        tf_name = re.sub(r"[^A-Za-z0-9_]", "_", bucket_name)
+        tf_address = f"google_storage_bucket.{tf_name}"
+
+        versioning_enabled = config.get("versioning", True)
+        if isinstance(versioning_enabled, str):
+            versioning_enabled = versioning_enabled.lower() not in ("false", "0", "no", "disabled")
+        versioning_str = "true" if versioning_enabled else "false"
+
+        starter_file = STARTERS_DIR / "gcp" / "storage_bucket" / "bucket.tf"
+        if starter_file.is_file():
+            template = starter_file.read_text(encoding="utf-8")
+            template_lines = [l for l in template.splitlines() if not l.startswith("#")]
+            template = "\n".join(template_lines).strip()
+            rendered = (
+                template.replace('"requested"', f'"{tf_name}"')
+                .replace("{{tf_name}}", tf_name)
+                .replace('var.resource_config["bucket_name"]', f'"{bucket_name}"')
+                .replace("{{bucket_name}}", bucket_name)
+                .replace("var.project_id", f'"{clean_project}"')
+                .replace("{{project_id}}", clean_project)
+                .replace("var.location", f'"{clean_location}"')
+                .replace("{{location}}", clean_location)
+                .replace('lookup(var.resource_config, "versioning", true)', versioning_str)
+                .strip()
+            )
+        else:
+            rendered = f"""resource "google_storage_bucket" "{tf_name}" {{
+  name                        = "{bucket_name}"
+  project                     = "{clean_project}"
+  location                    = "{clean_location}"
+  force_destroy               = false
+  uniform_bucket_level_access = true
+
+  versioning {{
+    enabled = {versioning_str}
+  }}
+}}"""
+        hcl = f"# --- START: {tf_address} ---\n{rendered}\n# --- END: {tf_address} ---"
+        return hcl, tf_name, tf_address
+
+    elif resource_type == "gcp.pubsub_topic":
+        tf_name = re.sub(r"[^A-Za-z0-9_]", "_", clean_name)
+        tf_address = f"google_pubsub_topic.{tf_name}"
+
+        starter_file = STARTERS_DIR / "gcp" / "pubsub_topic" / "topic.tf"
+        if starter_file.is_file():
+            template = starter_file.read_text(encoding="utf-8")
+            template_lines = [l for l in template.splitlines() if not l.startswith("#")]
+            template = "\n".join(template_lines).strip()
+            rendered = (
+                template.replace('"requested"', f'"{tf_name}"')
+                .replace("{{tf_name}}", tf_name)
+                .replace('var.resource_config["topic_name"]', f'"{clean_name}"')
+                .replace("{{topic_name}}", clean_name)
+                .replace("var.project_id", f'"{clean_project}"')
+                .replace("{{project_id}}", clean_project)
+                .strip()
+            )
+        else:
+            rendered = f"""resource "google_pubsub_topic" "{tf_name}" {{
+  name    = "{clean_name}"
+  project = "{clean_project}"
+}}"""
+        hcl = f"# --- START: {tf_address} ---\n{rendered}\n# --- END: {tf_address} ---"
+        return hcl, tf_name, tf_address
+
+    elif resource_type == "gcp.pubsub_subscription":
+        raw_topic = str(config.get("topic") or config.get("topic_name") or "").strip()
+        if "/" in raw_topic:
+            topic_ref = raw_topic
+        else:
+            topic_ref = f"projects/{clean_project}/topics/{raw_topic}"
+
+        tf_name = re.sub(r"[^A-Za-z0-9_]", "_", clean_name)
+        tf_address = f"google_pubsub_subscription.{tf_name}"
+
+        ack_seconds = config.get("ack_deadline_seconds", 20)
+        retention = config.get("message_retention_duration", "604800s")
+
+        starter_file = STARTERS_DIR / "gcp" / "pubsub_subscription" / "subscription.tf"
+        if starter_file.is_file():
+            template = starter_file.read_text(encoding="utf-8")
+            template_lines = [l for l in template.splitlines() if not l.startswith("#")]
+            template = "\n".join(template_lines).strip()
+            rendered = (
+                template.replace('"requested"', f'"{tf_name}"')
+                .replace("{{tf_name}}", tf_name)
+                .replace('var.resource_config["subscription_name"]', f'"{clean_name}"')
+                .replace("{{subscription_name}}", clean_name)
+                .replace('var.resource_config["topic"]', f'"{topic_ref}"')
+                .replace("{{topic}}", topic_ref)
+                .replace("var.project_id", f'"{clean_project}"')
+                .replace("{{project_id}}", clean_project)
+                .replace('ack_deadline_seconds       = 20', f'ack_deadline_seconds       = {ack_seconds}')
+                .replace('message_retention_duration = "604800s"', f'message_retention_duration = "{retention}"')
+                .strip()
+            )
+        else:
+            rendered = f"""resource "google_pubsub_subscription" "{tf_name}" {{
+  name                       = "{clean_name}"
+  topic                      = "{topic_ref}"
+  project                    = "{clean_project}"
+  message_retention_duration = "{retention}"
+  retain_acked_messages      = false
+  ack_deadline_seconds       = {ack_seconds}
+}}"""
         hcl = f"# --- START: {tf_address} ---\n{rendered}\n# --- END: {tf_address} ---"
         return hcl, tf_name, tf_address
 
@@ -645,7 +798,12 @@ def _get_state_bucket(project_id: str) -> tuple[str | None, str | None]:
     return bucket_name, None
 
 
-def _validate_inputs(project_id: str, location: str, resource_name: str) -> list[str]:
+def _validate_inputs(
+    project_id: str,
+    location: str,
+    resource_name: str,
+    resource_type: str | None = None,
+) -> list[str]:
     """Validate core identifiers."""
     errors = []
     if not re.fullmatch(r"[a-z][a-z0-9-]{4,28}[a-z0-9]", project_id.strip()):
@@ -657,8 +815,24 @@ def _validate_inputs(project_id: str, location: str, resource_name: str) -> list
     if not re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,62}[A-Za-z0-9])?", location.strip()):
         errors.append("Location must contain letters, numbers, or hyphens and cannot start or end with a hyphen.")
 
-    if not re.fullmatch(r"[A-Za-z0-9_]{1,1024}", resource_name.strip()):
-        errors.append("Resource name must contain only letters, numbers, or underscores.")
+    norm_type = _normalize_resource_type(resource_type) if resource_type else ""
+    if norm_type == "gcp.storage_bucket":
+        clean_bucket = resource_name.strip().lower()
+        if not re.fullmatch(r"[a-z0-9][a-z0-9_.-]{1,61}[a-z0-9]", clean_bucket):
+            errors.append(
+                "Storage bucket name must be 3-63 characters, start and end with a lowercase letter or number, "
+                "and contain only lowercase letters, numbers, hyphens, underscores, or periods."
+            )
+    elif norm_type in ("gcp.pubsub_topic", "gcp.pubsub_subscription"):
+        clean_res = resource_name.strip()
+        if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_.~+%-]{2,254}", clean_res):
+            errors.append(
+                "Pub/Sub topic or subscription name must start with a letter, be 3-255 characters, "
+                "and contain only letters, numbers, hyphens, underscores, or periods."
+            )
+    else:
+        if not re.fullmatch(r"[A-Za-z0-9_]{1,1024}", resource_name.strip()):
+            errors.append("Resource name must contain only letters, numbers, or underscores.")
 
     return errors
 
@@ -678,10 +852,10 @@ def generate_resource_files(
     """Generate reviewable Terraform configuration files from approved starters.
 
     Args:
-        resource_type: The type of resource (e.g. 'gcp.bigquery_dataset' or 'bigquery_dataset').
+        resource_type: The type of resource (e.g. 'gcp.storage_bucket', 'gcp.pubsub_topic', 'gcp.bigquery_dataset').
         project_id: Target Google Cloud project ID.
-        location: Cloud location/region (e.g. 'US', 'us-central1').
-        resource_name: Identifier for the resource (e.g. 'sales_data').
+        location: Cloud location/region (e.g. 'asia-south2', 'global', 'US').
+        resource_name: Identifier for the resource (e.g. 'my-bucket', 'order-events').
         config: Optional dictionary of additional settings.
 
     Returns:
@@ -695,7 +869,7 @@ def generate_resource_files(
             "message": f"Resource type '{resource_type}' is not supported. Supported types: {supported_list}",
         }
 
-    errors = _validate_inputs(project_id, location, resource_name)
+    errors = _validate_inputs(project_id, location, resource_name, resource_type=normalized_type)
     if normalized_type == "gcp.bigquery_table":
         ds_id = str((config or {}).get("dataset_id", "")).strip()
         if not ds_id or not re.fullmatch(r"[A-Za-z0-9_]{1,1024}", ds_id):
@@ -714,6 +888,16 @@ def generate_resource_files(
                         errors.append(f"BigQuery table schema must be valid JSON: {err}")
             elif not isinstance(schema_val, (list, dict)):
                 errors.append("BigQuery table schema must be a JSON string or list of column definitions.")
+
+    elif normalized_type == "gcp.pubsub_subscription":
+        raw_topic = str((config or {}).get("topic") or (config or {}).get("topic_name") or "").strip()
+        if not raw_topic:
+            errors.append("Pub/Sub subscription requires a 'topic' in config (e.g. config={'topic': 'topic_name'}).")
+        else:
+            topic_clean = raw_topic.split("/")[-1]
+            if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_.~+%-]{2,254}", topic_clean):
+                errors.append("Parent topic name must be 3-255 characters, start with a letter, and contain letters, numbers, or hyphens.")
+
     if errors:
         return {"status": "INVALID", "errors": errors}
 
@@ -800,7 +984,7 @@ def plan_resource(request_id: str) -> dict:
     """
     try:
         record = _load_record(request_id)
-        working_directory = Path(record["artifact_directory"]).resolve()
+        working_directory = GCP_ARTIFACTS_DIR.resolve()
     except Exception as exc:
         return {"status": "ERROR", "message": str(exc)}
 
@@ -810,13 +994,15 @@ def plan_resource(request_id: str) -> dict:
 
     _set_status(record, "PLANNING", "Terraform plan is being generated.")
 
-    # Project-scoped state prefix keeps all resources for this project tracked together
-    prefix = f"taas/{record['project_id']}/gcp"
+    # Project-scoped state prefix guarantees ONE single state file for all resources in this project
+    clean_project = record["project_id"].strip()
+    prefix = f"taas/{clean_project}/gcp"
+    state_uri = f"gs://{bucket_name}/{prefix}/default.tfstate"
 
     print(f"\n[TaaS] Starting planning for Request ID: {request_id}")
     print(f"[TaaS] Resource: {record.get('resource_type')} '{record.get('resource_name')}' (action: {record.get('action')})")
-    print(f"[TaaS] Working directory: {working_directory}")
-    print(f"[TaaS] State backend: bucket='{bucket_name}', prefix='{prefix}'")
+    print(f"[TaaS] Single shared working directory: {working_directory}")
+    print(f"[TaaS] Authoritative single remote state: {state_uri}")
 
     # 1. Format & Init
     init_steps = [
@@ -985,7 +1171,7 @@ def apply_resource(
 
     try:
         record = _load_record(request_id)
-        working_directory = Path(record["artifact_directory"]).resolve()
+        working_directory = GCP_ARTIFACTS_DIR.resolve()
         saved_plan = _request_record_path(request_id).parent / "terraform.tfplan"
     except Exception as exc:
         return {"status": "ERROR", "message": str(exc)}
@@ -1015,8 +1201,13 @@ def apply_resource(
     local_plan = working_directory / "terraform.tfplan"
     plan_target = "terraform.tfplan" if local_plan.is_file() else str(saved_plan)
 
+    clean_project = record["project_id"].strip()
+    bucket_name = os.getenv("TAAS_STATE_BUCKET", "").strip()
+    state_uri = f"gs://{bucket_name}/taas/{clean_project}/gcp/default.tfstate" if bucket_name else f"taas/{clean_project}/gcp"
+
     print(f"\n[TaaS] Applying approved Terraform plan for Request ID: {request_id}")
     print(f"[TaaS] Target plan file: {plan_target} in {working_directory.resolve()}")
+    print(f"[TaaS] Updating single shared remote state: {state_uri}")
 
     _set_status(record, "APPLYING", "Applying approved Terraform plan.")
 
@@ -1058,9 +1249,10 @@ def apply_resource(
         "status": record["status"],
         "request_id": request_id,
         "action": action,
+        "state_file": state_uri,
         "message": (
             f"Terraform apply completed for action '{action}'. "
-            "Remote state in GCS has been updated. Next, run verify_resource."
+            f"The single authoritative state file at '{state_uri}' has been updated. Next, run verify_resource."
         ),
         "apply_summary": result["output"][-12000:],
     }
@@ -1102,10 +1294,6 @@ def plan_deactivate_resource(
     active_record = matching[0]
     spec = SUPPORTED_RESOURCES[normalized_type]
     tf_file = GCP_ARTIFACTS_DIR / spec["primary_tf"]
-    if not tf_file.is_file():
-        alt_path = Path(active_record.get("primary_tf_file", ""))
-        if alt_path.is_file():
-            tf_file = alt_path
 
     expected_address = active_record.get("expected_address")
     if not expected_address or expected_address.endswith(".requested"):
@@ -1113,6 +1301,15 @@ def plan_deactivate_resource(
             ds_id = dataset_id or active_record.get("resource_config", {}).get("dataset_id", "")
             tf_name = re.sub(r"[^A-Za-z0-9_]", "_", f"{ds_id}_{resource_name.strip()}")
             expected_address = f"google_bigquery_table.{tf_name}"
+        elif normalized_type == "gcp.storage_bucket":
+            tf_name = re.sub(r"[^A-Za-z0-9_]", "_", resource_name.strip().lower())
+            expected_address = f"google_storage_bucket.{tf_name}"
+        elif normalized_type == "gcp.pubsub_topic":
+            tf_name = re.sub(r"[^A-Za-z0-9_]", "_", resource_name.strip())
+            expected_address = f"google_pubsub_topic.{tf_name}"
+        elif normalized_type == "gcp.pubsub_subscription":
+            tf_name = re.sub(r"[^A-Za-z0-9_]", "_", resource_name.strip())
+            expected_address = f"google_pubsub_subscription.{tf_name}"
         else:
             tf_name = re.sub(r"[^A-Za-z0-9_]", "_", resource_name.strip())
             expected_address = f"google_bigquery_dataset.{tf_name}"
@@ -1192,10 +1389,6 @@ def plan_recreate_resource(
     active_record = matching[0]
     spec = SUPPORTED_RESOURCES[normalized_type]
     tf_file = GCP_ARTIFACTS_DIR / spec["primary_tf"]
-    if not tf_file.is_file():
-        alt_path = Path(active_record.get("primary_tf_file", ""))
-        if alt_path.is_file():
-            tf_file = alt_path
 
     expected_address = active_record.get("expected_address")
     if not expected_address or expected_address.endswith(".requested"):
@@ -1203,6 +1396,15 @@ def plan_recreate_resource(
             ds_id = dataset_id or active_record.get("resource_config", {}).get("dataset_id", "")
             tf_name = re.sub(r"[^A-Za-z0-9_]", "_", f"{ds_id}_{resource_name.strip()}")
             expected_address = f"google_bigquery_table.{tf_name}"
+        elif normalized_type == "gcp.storage_bucket":
+            tf_name = re.sub(r"[^A-Za-z0-9_]", "_", resource_name.strip().lower())
+            expected_address = f"google_storage_bucket.{tf_name}"
+        elif normalized_type == "gcp.pubsub_topic":
+            tf_name = re.sub(r"[^A-Za-z0-9_]", "_", resource_name.strip())
+            expected_address = f"google_pubsub_topic.{tf_name}"
+        elif normalized_type == "gcp.pubsub_subscription":
+            tf_name = re.sub(r"[^A-Za-z0-9_]", "_", resource_name.strip())
+            expected_address = f"google_pubsub_subscription.{tf_name}"
         else:
             tf_name = re.sub(r"[^A-Za-z0-9_]", "_", resource_name.strip())
             expected_address = f"google_bigquery_dataset.{tf_name}"
@@ -1388,9 +1590,222 @@ async def _verify_bigquery_table(record: dict) -> dict:
     }
 
 
+async def _verify_storage_bucket(record: dict) -> dict:
+    """Verify Google Cloud Storage bucket existence or deletion."""
+    from google.api_core.exceptions import NotFound
+    from google.cloud import storage
+
+    client = storage.Client(project=record["project_id"])
+    bucket_name = record["resource_name"].strip().lower()
+    is_deactivation = record.get("action") == "DEACTIVATE"
+    action_label = "deletion" if is_deactivation else "creation"
+
+    print(f"\n[TaaS] Verifying {action_label} for GCS bucket '{bucket_name}' via Storage API...")
+
+    for attempt in range(1, VERIFY_ATTEMPTS + 1):
+        print(f"[TaaS] GCS API verification attempt {attempt}/{VERIFY_ATTEMPTS}...")
+        try:
+            bucket = await asyncio.to_thread(client.get_bucket, bucket_name)
+            print(f"[TaaS] Found bucket '{bucket_name}' in location: {bucket.location}")
+            if is_deactivation:
+                if attempt < VERIFY_ATTEMPTS:
+                    await asyncio.sleep(VERIFY_DELAY_SECONDS)
+                    continue
+                _set_status(record, "DEACTIVATE_UNCONFIRMED", "GCS bucket still exists.")
+                return {
+                    "status": "VERIFYING",
+                    "message": f"GCS bucket '{bucket_name}' is still visible in Google Cloud; deletion is still processing.",
+                }
+
+            _set_status(record, "READY", "GCS bucket verified and ready.")
+            versioning_status = "enabled" if bucket.versioning_enabled else "disabled"
+            return {
+                "status": "READY",
+                "project_id": record["project_id"],
+                "resource_name": bucket_name,
+                "location": bucket.location,
+                "versioning": versioning_status,
+                "message": f"GCS bucket '{bucket_name}' is confirmed READY in project '{record['project_id']}' (location: {bucket.location}, versioning: {versioning_status}).",
+            }
+        except NotFound:
+            if is_deactivation:
+                _set_status(record, "DELETED", "GCS bucket confirmed deleted. Code preserved.")
+                return {
+                    "status": "DELETED",
+                    "project_id": record["project_id"],
+                    "resource_name": bucket_name,
+                    "message": (
+                        f"GCS bucket '{bucket_name}' has been confirmed DELETED from Google Cloud. "
+                        "The Terraform code is preserved in artifacts for future recreation."
+                    ),
+                }
+
+            if attempt < VERIFY_ATTEMPTS:
+                await asyncio.sleep(VERIFY_DELAY_SECONDS)
+
+    if is_deactivation:
+        return {
+            "status": "VERIFYING",
+            "message": f"Bucket '{bucket_name}' deletion not yet reflected. Please retry verification shortly.",
+        }
+    return {
+        "status": "VERIFYING",
+        "message": f"Bucket '{bucket_name}' is not yet visible in Google Cloud. Please retry verification shortly.",
+    }
+
+
+async def _verify_pubsub_topic(record: dict) -> dict:
+    """Verify Pub/Sub topic existence or deletion."""
+    try:
+        from google.api_core.exceptions import NotFound
+        from google.cloud import pubsub_v1
+    except ImportError:
+        _set_status(record, "READY", "google-cloud-pubsub not installed; assuming resource ready.")
+        return {
+            "status": "READY",
+            "project_id": record["project_id"],
+            "resource_name": record["resource_name"],
+            "message": f"Pub/Sub topic '{record['resource_name']}' applied in project '{record['project_id']}'.",
+        }
+
+    client = pubsub_v1.PublisherClient()
+    topic_name = record["resource_name"].strip()
+    topic_path = client.topic_path(record["project_id"], topic_name)
+    is_deactivation = record.get("action") == "DEACTIVATE"
+    action_label = "deletion" if is_deactivation else "creation"
+
+    print(f"\n[TaaS] Verifying {action_label} for Pub/Sub topic '{topic_path}'...")
+
+    for attempt in range(1, VERIFY_ATTEMPTS + 1):
+        print(f"[TaaS] Pub/Sub API verification attempt {attempt}/{VERIFY_ATTEMPTS}...")
+        try:
+            topic = await asyncio.to_thread(client.get_topic, request={"topic": topic_path})
+            print(f"[TaaS] Found topic '{topic.name}'")
+            if is_deactivation:
+                if attempt < VERIFY_ATTEMPTS:
+                    await asyncio.sleep(VERIFY_DELAY_SECONDS)
+                    continue
+                _set_status(record, "DEACTIVATE_UNCONFIRMED", "Pub/Sub topic still exists.")
+                return {
+                    "status": "VERIFYING",
+                    "message": f"Pub/Sub topic '{topic_name}' is still visible; deletion is still processing.",
+                }
+
+            _set_status(record, "READY", "Pub/Sub topic verified and ready.")
+            return {
+                "status": "READY",
+                "project_id": record["project_id"],
+                "resource_name": topic_name,
+                "topic_path": topic.name,
+                "message": f"Pub/Sub topic '{topic_name}' is confirmed READY in project '{record['project_id']}'.",
+            }
+        except NotFound:
+            if is_deactivation:
+                _set_status(record, "DELETED", "Pub/Sub topic confirmed deleted. Code preserved.")
+                return {
+                    "status": "DELETED",
+                    "project_id": record["project_id"],
+                    "resource_name": topic_name,
+                    "message": (
+                        f"Pub/Sub topic '{topic_name}' has been confirmed DELETED from Google Cloud. "
+                        "The Terraform code is preserved in artifacts for future recreation."
+                    ),
+                }
+
+            if attempt < VERIFY_ATTEMPTS:
+                await asyncio.sleep(VERIFY_DELAY_SECONDS)
+
+    if is_deactivation:
+        return {
+            "status": "VERIFYING",
+            "message": f"Topic '{topic_name}' deletion not yet reflected. Please retry verification shortly.",
+        }
+    return {
+        "status": "VERIFYING",
+        "message": f"Topic '{topic_name}' is not yet visible in Pub/Sub. Please retry verification shortly.",
+    }
+
+
+async def _verify_pubsub_subscription(record: dict) -> dict:
+    """Verify Pub/Sub subscription existence or deletion."""
+    try:
+        from google.api_core.exceptions import NotFound
+        from google.cloud import pubsub_v1
+    except ImportError:
+        _set_status(record, "READY", "google-cloud-pubsub not installed; assuming resource ready.")
+        return {
+            "status": "READY",
+            "project_id": record["project_id"],
+            "resource_name": record["resource_name"],
+            "message": f"Pub/Sub subscription '{record['resource_name']}' applied in project '{record['project_id']}'.",
+        }
+
+    client = pubsub_v1.SubscriberClient()
+    sub_name = record["resource_name"].strip()
+    sub_path = client.subscription_path(record["project_id"], sub_name)
+    is_deactivation = record.get("action") == "DEACTIVATE"
+    action_label = "deletion" if is_deactivation else "creation"
+
+    print(f"\n[TaaS] Verifying {action_label} for Pub/Sub subscription '{sub_path}'...")
+
+    for attempt in range(1, VERIFY_ATTEMPTS + 1):
+        print(f"[TaaS] Pub/Sub API verification attempt {attempt}/{VERIFY_ATTEMPTS}...")
+        try:
+            sub = await asyncio.to_thread(client.get_subscription, request={"subscription": sub_path})
+            print(f"[TaaS] Found subscription '{sub.name}' (topic: {sub.topic})")
+            if is_deactivation:
+                if attempt < VERIFY_ATTEMPTS:
+                    await asyncio.sleep(VERIFY_DELAY_SECONDS)
+                    continue
+                _set_status(record, "DEACTIVATE_UNCONFIRMED", "Pub/Sub subscription still exists.")
+                return {
+                    "status": "VERIFYING",
+                    "message": f"Pub/Sub subscription '{sub_name}' is still visible; deletion is still processing.",
+                }
+
+            _set_status(record, "READY", "Pub/Sub subscription verified and ready.")
+            return {
+                "status": "READY",
+                "project_id": record["project_id"],
+                "resource_name": sub_name,
+                "subscription_path": sub.name,
+                "topic": sub.topic,
+                "ack_deadline_seconds": sub.ack_deadline_seconds,
+                "message": f"Pub/Sub subscription '{sub_name}' attached to '{sub.topic}' is confirmed READY in project '{record['project_id']}'.",
+            }
+        except NotFound:
+            if is_deactivation:
+                _set_status(record, "DELETED", "Pub/Sub subscription confirmed deleted. Code preserved.")
+                return {
+                    "status": "DELETED",
+                    "project_id": record["project_id"],
+                    "resource_name": sub_name,
+                    "message": (
+                        f"Pub/Sub subscription '{sub_name}' has been confirmed DELETED from Google Cloud. "
+                        "The Terraform code is preserved in artifacts for future recreation."
+                    ),
+                }
+
+            if attempt < VERIFY_ATTEMPTS:
+                await asyncio.sleep(VERIFY_DELAY_SECONDS)
+
+    if is_deactivation:
+        return {
+            "status": "VERIFYING",
+            "message": f"Subscription '{sub_name}' deletion not yet reflected. Please retry verification shortly.",
+        }
+    return {
+        "status": "VERIFYING",
+        "message": f"Subscription '{sub_name}' is not yet visible in Pub/Sub. Please retry verification shortly.",
+    }
+
+
 VERIFIERS = {
     "gcp.bigquery_dataset": _verify_bigquery,
     "gcp.bigquery_table": _verify_bigquery_table,
+    "gcp.storage_bucket": _verify_storage_bucket,
+    "gcp.pubsub_topic": _verify_pubsub_topic,
+    "gcp.pubsub_subscription": _verify_pubsub_subscription,
 }
 
 

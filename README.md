@@ -31,12 +31,21 @@ terraform_starters/                    # Approved Terraform templates (source of
       dataset.tf                       # Dataset resource starter template
     bigquery_table/
       table.tf                         # Table resource starter template
+    storage_bucket/
+      bucket.tf                        # GCS bucket starter template
+    pubsub_topic/
+      topic.tf                         # Pub/Sub topic starter template
+    pubsub_subscription/
+      subscription.tf                  # Pub/Sub subscription starter template
 artifacts/                             # Created strictly at RUNTIME from starters
   gcp/                                 # Single runtime folder for all GCP resources
     main.tf                            # Copied at runtime from common/main.tf
     variables.tf                       # Copied at runtime from common/variables.tf
     dataset.tf                         # All BigQuery datasets (commented when deleted)
     table.tf                           # All BigQuery tables (commented when deleted)
+    bucket.tf                          # All GCS buckets (commented when deleted)
+    topic.tf                           # All Pub/Sub topics (commented when deleted)
+    subscription.tf                    # All Pub/Sub subscriptions (commented when deleted)
     backend.tfvars                     # GCS state config
     terraform.tfvars                   # Runtime project & location vars
 .taas/requests/                        # Local request records, metadata, and saved plans
