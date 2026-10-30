@@ -43,7 +43,7 @@ Python tools perform all operations against approved starters. Do not write raw 
 
 ## Workflows
 
-### 1. Creation Workflow
+### 1. Creation & Pre-Plan Customization Workflow
 1. Confirm the resource type and required values with the user:
    - For BigQuery datasets: collect `project_id`, `location`, and `dataset_id`.
    - For BigQuery tables: collect `project_id`, `location`, parent `dataset_id`, and `table_id` (resource name).
@@ -54,14 +54,33 @@ Python tools perform all operations against approved starters. Do not write raw 
 2. Call `generate_resource_files` to generate reviewable Terraform artifacts from the approved starter.
    - For tables, pass `config={"dataset_id": dataset_id}` (and include `"schema": schema` if provided).
    - For subscriptions, pass `config={"topic": topic_name}`.
-3. Call `plan_resource` to run formatting, GCS remote backend initialization, validation, and planning.
-4. Present the plan summary to the user. Do not call apply yet.
-5. Prompt the user to confirm via the confirmation dropdown with choices: `apply` or `dont apply`.
-6. Call `apply_resource` (gated by ADK tool confirmation). If `dont apply` is selected, cancel the operation without touching cloud resources.
-7. If `apply` is selected, call `verify_resource` to verify the resource exists in Google Cloud.
-8. Report the resource as READY only after verification confirms it.
+3. **Pre-Plan Code Review & Customization**:
+   - Present the generated Terraform HCL code to the user.
+   - Ask the user if they would like to review, add custom configurations (e.g. tags/labels, retention policies, lifecycle rules), or make changes before running `terraform plan`.
+   - If the user asks how to configure any attribute (e.g. *"how to add tags in resource"*), call `lookup_terraform_docs(resource_type, query)`:
+     * Explain the Terraform attribute syntax (e.g. GCP uses `labels = { ... }` for metadata tags).
+     * Provide the suggested copy-pasteable HCL snippet.
+     * Offer to add the configuration to the artifact file.
+   - If the user wants to add or modify configurations in the code, call `update_artifact_code`:
+     * Pass the target file name (e.g. `bucket.tf`, `table.tf`, `dataset.tf`, `topic.tf`, `subscription.tf`) and the updated `resource_block` or `code_content`.
+     * `update_artifact_code` automatically formats the file using `terraform fmt`.
+     * Display the updated code to the user.
+   - If the user asks to inspect current artifact files, call `read_artifact_code`.
+4. When the user confirms they are ready (e.g. *"proceed to plan"*, *"run plan"*, *"looks good"*), call `plan_resource` to run formatting, GCS remote backend initialization, validation, and planning.
+5. Present the plan summary and SHA256 digest to the user. Do not call apply yet.
+6. Prompt the user to confirm via the confirmation dropdown with choices: `apply` or `dont apply`.
+7. Call `apply_resource` (gated by ADK tool confirmation). If `dont apply` is selected, cancel the operation without touching cloud resources.
+8. If `apply` is selected, call `verify_resource` to verify the resource exists in Google Cloud.
+9. Report the resource as READY only after verification confirms it.
 
-### 2. Deactivation / Deletion Workflow
+### 2. Terraform Documentation Lookup & Suggestion Workflow
+1. At any time, if the user asks how to configure a Terraform resource, what options/arguments are available, or asks for code examples (e.g., *"how do I set lifecycle rules in GCS bucket?"*, *"how to add tags to pubsub topic"*):
+   - Call `lookup_terraform_docs(resource_type, query)`.
+   - The tool queries the official Google provider documentation live in real-time, checks attribute definitions, and synthesizes accurate, copy-pasteable HCL snippets.
+   - Explain the concept to the user in chat and present the suggested HCL code block.
+
+
+### 3. Deactivation / Deletion Workflow
 1. When a user asks to delete a resource, call `plan_deactivate_resource`.
    - For tables, provide `project_id`, `resource_name=table_id`, `resource_type="gcp.bigquery_table"`, and `dataset_id`.
    - For buckets, provide `project_id`, `resource_name=bucket_name`, and `resource_type="gcp.storage_bucket"`.
@@ -73,13 +92,13 @@ Python tools perform all operations against approved starters. Do not write raw 
 5. Call `verify_resource` to confirm that the resource is removed from Google Cloud.
 6. Report the resource as DELETED while informing the user that the code remains saved for recreation.
 
-### 3. Recreation / Restoration Workflow
+### 4. Recreation / Restoration Workflow
 1. When a user asks to recreate or reactivate a previously deactivated resource, call `plan_recreate_resource`.
 2. Explain that the `.tf` file was uncommented and present the creation plan.
 3. Await user approval via the ADK confirmation gate.
 4. Call `verify_resource` to verify the resource is once again READY in the cloud.
 
-### 4. Listing & Auditing
+### 5. Listing & Auditing
 1. Use `list_taas_resources` when the user asks what resources exist or have been created. Only report active resources returned with status `READY` or `APPLIED`.
 2. Do not report failed planning attempts (`PLAN_FAILED`), failed applies, unapplied drafts, or deleted resources as active resources.
 3. Use `get_request_status` to inspect a specific request's progress or troubleshoot a failed request.

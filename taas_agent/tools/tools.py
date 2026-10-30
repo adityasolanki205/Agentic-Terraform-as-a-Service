@@ -955,6 +955,9 @@ def generate_resource_files(
         "resource_type": normalized_type,
         "resource_name": resource_name.strip(),
         "artifact_directory": str(output_dir.resolve()),
+        "expected_address": tf_address,
+        "primary_tf_file": primary_tf_name,
+        "generated_code": hcl_block,
         "files": [
             str(output_dir / "main.tf"),
             str(output_dir / "variables.tf"),
@@ -963,9 +966,10 @@ def generate_resource_files(
         ],
         "message": (
             f"Terraform resource '{tf_address}' added to '{primary_tf_name}' under 'artifacts/gcp'. "
-            "Ready to run Terraform plan."
+            "You can review or customize this code before running Terraform plan."
         ),
     }
+
 
 
 def plan_resource(request_id: str) -> dict:
@@ -1920,3 +1924,631 @@ def list_taas_resources(
             else "No active resources found in the registry."
         ),
     }
+
+
+# ==============================================================================
+# Terraform Documentation & Artifact Code Inspection/Update Tools
+# ==============================================================================
+
+# Ensure no disk caching is used for documentation (always fetched live)
+_legacy_doc_cache = PROJECT_ROOT / ".taas" / "doc_cache"
+if _legacy_doc_cache.exists():
+    try:
+        shutil.rmtree(_legacy_doc_cache, ignore_errors=True)
+    except Exception:
+        pass
+
+DOC_RESOURCE_METADATA = {
+
+    "gcp.storage_bucket": {
+        "hcl_type": "google_storage_bucket",
+        "doc_file": "storage_bucket.html.markdown",
+        "registry_slug": "storage_bucket",
+        "primary_tf": "bucket.tf",
+        "common_suggestions": {
+            "tags": {
+                "argument": "labels",
+                "explanation": (
+                    "In Google Cloud Platform and the Google Terraform provider, resource tags are configured "
+                    "using the 'labels' argument as a map of key-value string pairs."
+                ),
+                "snippet": (
+                    '  labels = {\n'
+                    '    environment = "dev"\n'
+                    '    managed_by  = "taas"\n'
+                    '    owner       = "engineering"\n'
+                    '  }'
+                ),
+            },
+            "labels": {
+                "argument": "labels",
+                "explanation": "Assign key/value string pairs to label and categorize the storage bucket.",
+                "snippet": (
+                    '  labels = {\n'
+                    '    environment = "dev"\n'
+                    '    department  = "data"\n'
+                    '  }'
+                ),
+            },
+            "retention": {
+                "argument": "retention_policy",
+                "explanation": "Enforces a minimum retention period for all objects in the bucket before they can be deleted.",
+                "snippet": (
+                    '  retention_policy {\n'
+                    '    is_locked        = false\n'
+                    '    retention_period = 2592000 # 30 days in seconds\n'
+                    '  }'
+                ),
+            },
+            "lifecycle": {
+                "argument": "lifecycle_rule",
+                "explanation": "Configures object lifecycle management rules (e.g. auto-delete objects after N days).",
+                "snippet": (
+                    '  lifecycle_rule {\n'
+                    '    condition {\n'
+                    '      age = 30 # days\n'
+                    '    }\n'
+                    '    action {\n'
+                    '      type = "Delete"\n'
+                    '    }\n'
+                    '  }'
+                ),
+            },
+            "cors": {
+                "argument": "cors",
+                "explanation": "Configures Cross-Origin Resource Sharing (CORS) policies for the storage bucket.",
+                "snippet": (
+                    '  cors {\n'
+                    '    origin          = ["*"]\n'
+                    '    method          = ["GET", "HEAD", "PUT", "POST"]\n'
+                    '    response_header = ["*"]\n'
+                    '    max_age_seconds = 3600\n'
+                    '  }'
+                ),
+            },
+            "encryption": {
+                "argument": "encryption",
+                "explanation": "Configures Customer-Managed Encryption Keys (CMEK) for the bucket.",
+                "snippet": (
+                    '  encryption {\n'
+                    '    default_kms_key_name = "projects/PROJECT_ID/locations/LOCATION/keyRings/RING/cryptoKeys/KEY"\n'
+                    '  }'
+                ),
+            },
+        },
+    },
+    "gcp.bigquery_dataset": {
+        "hcl_type": "google_bigquery_dataset",
+        "doc_file": "bigquery_dataset.html.markdown",
+        "registry_slug": "bigquery_dataset",
+        "primary_tf": "dataset.tf",
+        "common_suggestions": {
+            "tags": {
+                "argument": "labels",
+                "explanation": (
+                    "In Google Cloud Platform and the Google Terraform provider, tags on BigQuery datasets "
+                    "are configured using the 'labels' argument as key-value string pairs."
+                ),
+                "snippet": (
+                    '  labels = {\n'
+                    '    environment = "dev"\n'
+                    '    department  = "analytics"\n'
+                    '  }'
+                ),
+            },
+            "labels": {
+                "argument": "labels",
+                "explanation": "Assign key/value string pairs to label and categorize the BigQuery dataset.",
+                "snippet": (
+                    '  labels = {\n'
+                    '    environment = "dev"\n'
+                    '    department  = "analytics"\n'
+                    '  }'
+                ),
+            },
+            "retention": {
+                "argument": "default_table_expiration_ms",
+                "explanation": "Sets the default lifetime (in milliseconds) for all tables newly created in the dataset.",
+                "snippet": '  default_table_expiration_ms = 2592000000 # 30 days in ms',
+            },
+            "access": {
+                "argument": "access",
+                "explanation": "Grants IAM roles on the BigQuery dataset to users, service accounts, or groups.",
+                "snippet": (
+                    '  access {\n'
+                    '    role          = "READER"\n'
+                    '    user_by_email = "analyst@example.com"\n'
+                    '  }'
+                ),
+            },
+            "description": {
+                "argument": "description",
+                "explanation": "User-friendly description and friendly name for the dataset.",
+                "snippet": (
+                    '  friendly_name = "My Analytics Dataset"\n'
+                    '  description   = "Stores processed data analytics tables"\n'
+                ),
+            },
+        },
+    },
+    "gcp.bigquery_table": {
+        "hcl_type": "google_bigquery_table",
+        "doc_file": "bigquery_table.html.markdown",
+        "registry_slug": "bigquery_table",
+        "primary_tf": "table.tf",
+        "common_suggestions": {
+            "tags": {
+                "argument": "labels",
+                "explanation": (
+                    "In Google Cloud Platform and the Google Terraform provider, BigQuery table tags "
+                    "are specified using the 'labels' argument as key-value pairs."
+                ),
+                "snippet": (
+                    '  labels = {\n'
+                    '    environment = "dev"\n'
+                    '    sensitivity = "internal"\n'
+                    '  }'
+                ),
+            },
+            "labels": {
+                "argument": "labels",
+                "explanation": "Key/value labels assigned to the BigQuery table.",
+                "snippet": (
+                    '  labels = {\n'
+                    '    environment = "dev"\n'
+                    '    team        = "bi"\n'
+                    '  }'
+                ),
+            },
+            "schema": {
+                "argument": "schema",
+                "explanation": "Defines the table schema as a JSON string using an EOF block.",
+                "snippet": (
+                    '  schema = <<EOF\n'
+                    '[\n'
+                    '  {"name": "id", "type": "STRING", "mode": "REQUIRED"},\n'
+                    '  {"name": "event_timestamp", "type": "TIMESTAMP", "mode": "REQUIRED"},\n'
+                    '  {"name": "status", "type": "STRING", "mode": "NULLABLE"}\n'
+                    ']\n'
+                    'EOF'
+                ),
+            },
+            "partition": {
+                "argument": "time_partitioning",
+                "explanation": "Configures time partitioning on a field (e.g. DAY, HOUR, MONTH).",
+                "snippet": (
+                    '  time_partitioning {\n'
+                    '    type  = "DAY"\n'
+                    '    field = "event_timestamp"\n'
+                    '  }'
+                ),
+            },
+            "clustering": {
+                "argument": "clustering",
+                "explanation": "Specifies up to 4 column names to cluster the BigQuery table for optimized queries.",
+                "snippet": '  clustering = ["status", "id"]',
+            },
+            "expiration": {
+                "argument": "expiration_time",
+                "explanation": "The time when this table expires, in milliseconds since the epoch.",
+                "snippet": '  expiration_time = 1735689600000 # Unix timestamp in ms',
+            },
+        },
+    },
+    "gcp.pubsub_topic": {
+        "hcl_type": "google_pubsub_topic",
+        "doc_file": "pubsub_topic.html.markdown",
+        "registry_slug": "pubsub_topic",
+        "primary_tf": "topic.tf",
+        "common_suggestions": {
+            "tags": {
+                "argument": "labels",
+                "explanation": (
+                    "In Google Cloud Platform and the Google Terraform provider, Pub/Sub topic tags "
+                    "are specified using the 'labels' argument as key-value pairs."
+                ),
+                "snippet": (
+                    '  labels = {\n'
+                    '    environment = "dev"\n'
+                    '    service     = "orders"\n'
+                    '  }'
+                ),
+            },
+            "labels": {
+                "argument": "labels",
+                "explanation": "Key/value labels assigned to the Pub/Sub topic.",
+                "snippet": (
+                    '  labels = {\n'
+                    '    environment = "dev"\n'
+                    '    service     = "orders"\n'
+                    '  }'
+                ),
+            },
+            "retention": {
+                "argument": "message_retention_duration",
+                "explanation": "Configures how long unacknowledged messages are retained on the topic.",
+                "snippet": '  message_retention_duration = "86600s" # e.g. 24 hours',
+            },
+            "kms": {
+                "argument": "kms_key_name",
+                "explanation": "The resource name of the Cloud KMS CryptoKey used to encrypt messages at rest.",
+                "snippet": '  kms_key_name = "projects/PROJECT_ID/locations/global/keyRings/RING/cryptoKeys/KEY"',
+            },
+        },
+    },
+    "gcp.pubsub_subscription": {
+        "hcl_type": "google_pubsub_subscription",
+        "doc_file": "pubsub_subscription.html.markdown",
+        "registry_slug": "pubsub_subscription",
+        "primary_tf": "subscription.tf",
+        "common_suggestions": {
+            "tags": {
+                "argument": "labels",
+                "explanation": (
+                    "In Google Cloud Platform and the Google Terraform provider, Pub/Sub subscription tags "
+                    "are specified using the 'labels' argument as key-value pairs."
+                ),
+                "snippet": (
+                    '  labels = {\n'
+                    '    environment = "dev"\n'
+                    '    consumer    = "billing-worker"\n'
+                    '  }'
+                ),
+            },
+            "labels": {
+                "argument": "labels",
+                "explanation": "Key/value labels assigned to the Pub/Sub subscription.",
+                "snippet": (
+                    '  labels = {\n'
+                    '    environment = "dev"\n'
+                    '    consumer    = "billing-worker"\n'
+                    '  }'
+                ),
+            },
+            "retention": {
+                "argument": "message_retention_duration",
+                "explanation": "How long to retain unacknowledged messages in the subscription backlog.",
+                "snippet": '  message_retention_duration = "1200s" # 20 minutes',
+            },
+            "ack": {
+                "argument": "ack_deadline_seconds",
+                "explanation": "The maximum time after a subscriber receives a message before the message should be acknowledged.",
+                "snippet": '  ack_deadline_seconds = 60 # 10 to 600 seconds',
+            },
+            "dead_letter": {
+                "argument": "dead_letter_policy",
+                "explanation": "Forwards messages that cannot be processed to a dead-letter topic after max delivery attempts.",
+                "snippet": (
+                    '  dead_letter_policy {\n'
+                    '    dead_letter_topic     = "projects/PROJECT_ID/topics/my-dead-letter-topic"\n'
+                    '    max_delivery_attempts = 5\n'
+                    '  }'
+                ),
+            },
+            "expiration": {
+                "argument": "expiration_policy",
+                "explanation": "Configures when an idle subscription expires (TTL of inactivity).",
+                "snippet": (
+                    '  expiration_policy {\n'
+                    '    ttl = "2592000s" # 30 days\n'
+                    '  }'
+                ),
+            },
+            "filter": {
+                "argument": "filter",
+                "explanation": "An expression filtering messages based on message attributes.",
+                "snippet": '  filter = "attributes.event_type = \\"order_created\\""',
+            },
+        },
+    },
+}
+
+
+def _fetch_remote_doc_markdown(doc_file: str) -> str | None:
+    """Fetch official Terraform documentation markdown live from terraform-provider-google repository in real-time.
+
+    Fetches directly from upstream GitHub with 0 disk caching to guarantee no stale content
+    and zero disk space usage.
+    """
+    url = f"https://raw.githubusercontent.com/hashicorp/terraform-provider-google/main/website/docs/r/{doc_file}"
+    try:
+        import urllib.request
+        req = urllib.request.Request(
+            url,
+            headers={"User-Agent": "Mozilla/5.0 (compatible; TaaS-Live-Docs/1.0)"},
+        )
+        with urllib.request.urlopen(req, timeout=6) as resp:
+            if resp.status == 200:
+                return resp.read().decode("utf-8", errors="replace")
+    except Exception as exc:
+        print(f"[TaaS] Note: Direct doc fetch from {url} encountered: {exc}")
+    return None
+
+
+def _extract_doc_arguments(markdown: str) -> list[dict]:
+    """Extract argument list from the Argument Reference section of provider docs."""
+    args = []
+    arg_ref_start = markdown.find("## Argument Reference")
+    if arg_ref_start == -1:
+        arg_ref_start = markdown.find("# Argument Reference")
+    if arg_ref_start == -1:
+        return args
+
+    # Find next top section heading
+    next_section = markdown.find("\n## ", arg_ref_start + 20)
+    section_text = markdown[arg_ref_start:next_section] if next_section != -1 else markdown[arg_ref_start:]
+
+    pattern = re.compile(r"^\s*[\*\-]\s+`?([a-zA-Z0-9_]+)`?\s*-\s*(.*)$", re.MULTILINE)
+    for match in pattern.finditer(section_text):
+        arg_name = match.group(1).strip()
+        arg_desc = match.group(2).strip()
+        arg_desc_clean = re.sub(r"\[([^\]]+)\]\([^\)]+\)", r"\1", arg_desc)
+        args.append({"name": arg_name, "description": arg_desc_clean})
+    return args
+
+
+def lookup_terraform_docs(resource_type: str, query: str | None = None) -> dict:
+    """Fetch official Terraform documentation live for a resource and suggest code configuration in real time.
+
+    Queries documentation directly from the official Terraform Google provider repository (without caching)
+    to always retrieve the most up-to-date documentation without using local disk space, and suggests
+    code snippets for queried attributes such as tags/labels, retention, lifecycle rules, or schema.
+
+    Args:
+        resource_type: Resource type name (e.g. 'storage_bucket', 'bigquery_dataset',
+                       'bigquery_table', 'pubsub_topic', 'pubsub_subscription').
+        query: Optional question or attribute name (e.g. 'tags', 'labels', 'retention',
+               'lifecycle', 'schema', 'cors', 'kms', 'encryption').
+
+    Returns:
+        dict: Documentation details, explanation, and copy-pasteable code suggestions.
+    """
+    norm_type = _normalize_resource_type(resource_type)
+    if norm_type not in DOC_RESOURCE_METADATA:
+        clean_res = resource_type.strip().lower()
+        matched_key = None
+        for k, v in DOC_RESOURCE_METADATA.items():
+            if clean_res in (k, v["hcl_type"], v["registry_slug"]):
+                matched_key = k
+                break
+        if matched_key:
+            norm_type = matched_key
+        else:
+            supported = ", ".join(DOC_RESOURCE_METADATA.keys())
+            return {
+                "status": "UNSUPPORTED",
+                "message": f"Resource type '{resource_type}' is not supported for doc lookup. Supported: {supported}",
+            }
+
+    meta = DOC_RESOURCE_METADATA[norm_type]
+    hcl_type = meta["hcl_type"]
+    primary_tf = meta["primary_tf"]
+    reg_url = f"https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/{meta['registry_slug']}"
+
+    # Fetch markdown documentation
+    doc_markdown = _fetch_remote_doc_markdown(meta["doc_file"])
+    doc_args = _extract_doc_arguments(doc_markdown) if doc_markdown else []
+
+    # Process query
+    q_str = (query or "").lower().strip()
+    explanation = ""
+    suggested_code = ""
+
+    # Check common aliases
+    alias_map = {
+        "tag": "tags",
+        "tags": "tags",
+        "label": "labels",
+        "labels": "labels",
+        "retention": "retention",
+        "retention_policy": "retention",
+        "lifecycle": "lifecycle",
+        "lifecycle_rule": "lifecycle",
+        "cors": "cors",
+        "encrypt": "encryption",
+        "encryption": "encryption",
+        "kms": "encryption" if "encryption" in meta["common_suggestions"] else "kms",
+        "schema": "schema",
+        "partition": "partition",
+        "partitioning": "partition",
+        "cluster": "clustering",
+        "clustering": "clustering",
+        "ack": "ack",
+        "dead_letter": "dead_letter",
+        "expire": "expiration",
+        "expiration": "expiration",
+        "filter": "filter",
+        "access": "access",
+        "description": "description",
+    }
+
+    matched_key = None
+    for keyword, target_key in alias_map.items():
+        if keyword in q_str:
+            if target_key in meta["common_suggestions"]:
+                matched_key = target_key
+                break
+
+    if matched_key and matched_key in meta["common_suggestions"]:
+        matched_suggestion = meta["common_suggestions"][matched_key]
+        explanation = matched_suggestion["explanation"]
+        suggested_code = matched_suggestion["snippet"]
+    elif q_str:
+        # Search extracted arguments from doc
+        matching_args = [
+            a for a in doc_args
+            if q_str in a["name"].lower() or any(w in a["name"].lower() for w in q_str.split())
+        ]
+        if matching_args:
+            first_match = matching_args[0]
+            explanation = f"Argument '{first_match['name']}': {first_match['description']}"
+            suggested_code = f'  {first_match["name"]} = "..."'
+        else:
+            explanation = f"Consult official documentation for available arguments for {hcl_type}."
+
+    # If no query provided, return resource overview
+    if not q_str:
+        explanation = (
+            f"Official Terraform documentation for '{hcl_type}'. "
+            f"Managed in 'artifacts/gcp/{primary_tf}'. "
+            "Supported configurations include tags/labels, retention, lifecycle rules, and custom policies."
+        )
+        if "tags" in meta["common_suggestions"]:
+            suggested_code = meta["common_suggestions"]["tags"]["snippet"]
+
+    # Collect matched arguments from doc
+    relevant_args = []
+    if q_str:
+        for a in doc_args:
+            if any(term in a["name"].lower() or term in a["description"].lower() for term in q_str.split()):
+                relevant_args.append(a)
+                if len(relevant_args) >= 5:
+                    break
+    if not relevant_args and doc_args:
+        relevant_args = doc_args[:5]
+
+    message = f"Found documentation for '{hcl_type}'."
+    if explanation:
+        message += f"\n\n{explanation}"
+    if suggested_code:
+        message += f"\n\nSuggested HCL configuration:\n```hcl\n{suggested_code}\n```"
+
+    return {
+        "status": "SUCCESS",
+        "resource_type": norm_type,
+        "terraform_resource": hcl_type,
+        "primary_tf_file": primary_tf,
+        "documentation_url": reg_url,
+        "query": query,
+        "explanation": explanation,
+        "suggested_code": suggested_code,
+        "matched_arguments": relevant_args,
+        "message": message,
+    }
+
+
+def read_artifact_code(file_name: str | None = None) -> dict:
+    """Read generated Terraform configuration files from artifacts/gcp before planning.
+
+    Args:
+        file_name: Optional file name (e.g. 'bucket.tf', 'dataset.tf', 'table.tf',
+                   'topic.tf', 'subscription.tf', 'main.tf', 'variables.tf').
+                   If omitted or 'all', returns all Terraform files in artifacts/gcp.
+
+    Returns:
+        dict: File contents and directory status.
+    """
+    if not GCP_ARTIFACTS_DIR.exists():
+        return {
+            "status": "NOT_FOUND",
+            "message": "The artifacts/gcp directory has not been generated yet. Run generate_resource_files first.",
+        }
+
+    if file_name and file_name.strip().lower() not in ("all", "*"):
+        clean_name = Path(file_name.strip()).name
+        target_path = GCP_ARTIFACTS_DIR / clean_name
+        if not target_path.is_file():
+            available = [f.name for f in GCP_ARTIFACTS_DIR.iterdir() if f.is_file() and f.suffix in (".tf", ".tfvars")]
+            return {
+                "status": "NOT_FOUND",
+                "message": f"File '{clean_name}' not found in artifacts/gcp. Available files: {', '.join(available)}",
+                "available_files": available,
+            }
+        content = target_path.read_text(encoding="utf-8")
+        return {
+            "status": "SUCCESS",
+            "file_name": clean_name,
+            "path": str(target_path.resolve()),
+            "lines": len(content.splitlines()),
+            "content": content,
+        }
+
+    # Return all .tf and .tfvars files
+    files_content = {}
+    for f in sorted(GCP_ARTIFACTS_DIR.iterdir()):
+        if f.is_file() and f.suffix in (".tf", ".tfvars"):
+            files_content[f.name] = f.read_text(encoding="utf-8")
+
+    return {
+        "status": "SUCCESS",
+        "artifact_directory": str(GCP_ARTIFACTS_DIR.resolve()),
+        "file_count": len(files_content),
+        "files": files_content,
+        "message": f"Retrieved {len(files_content)} artifact file(s) from 'artifacts/gcp'.",
+    }
+
+
+def update_artifact_code(
+    file_name: str,
+    code_content: str | None = None,
+    resource_address: str | None = None,
+    resource_block: str | None = None,
+) -> dict:
+    """Make changes to generated Terraform code in artifacts/gcp before planning.
+
+    Allows adding custom configurations (e.g. tags/labels, retention, lifecycle rules)
+    to a resource block or editing a .tf file directly. Automatically formats code with 'terraform fmt'.
+
+    Args:
+        file_name: Target file in artifacts/gcp (e.g. 'bucket.tf', 'dataset.tf', 'table.tf',
+                   'topic.tf', 'subscription.tf').
+        code_content: Full replacement content for the file (if replacing the whole file).
+        resource_address: Address of resource to update (e.g. 'google_storage_bucket.my_bucket').
+        resource_block: New or updated HCL block for the specific resource.
+
+    Returns:
+        dict: Updated file content and status.
+    """
+    clean_name = Path(file_name.strip()).name
+    if not (clean_name.endswith(".tf") or clean_name.endswith(".tfvars")):
+        return {
+            "status": "INVALID",
+            "message": f"File name '{clean_name}' must have a .tf or .tfvars extension.",
+        }
+
+    GCP_ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
+    target_path = GCP_ARTIFACTS_DIR / clean_name
+
+    if resource_block:
+        addr = resource_address
+        if not addr:
+            m = re.search(r'resource\s+"([a-zA-Z0-9_]+)"\s+"([a-zA-Z0-9_]+)"', resource_block)
+            if m:
+                addr = f"{m.group(1)}.{m.group(2)}"
+            else:
+                return {
+                    "status": "INVALID",
+                    "message": "resource_address was not provided and could not be inferred from the resource_block header.",
+                }
+
+        block_clean = resource_block.strip()
+        start_marker = f"# --- START: {addr} ---"
+        end_marker = f"# --- END: {addr} ---"
+        if not block_clean.startswith("# --- START:"):
+            block_clean = f"{start_marker}\n{block_clean}\n{end_marker}"
+
+        _upsert_resource_block(target_path, addr, block_clean)
+
+    elif code_content is not None:
+        target_path.write_text(code_content.strip() + "\n", encoding="utf-8")
+    else:
+        return {
+            "status": "INVALID",
+            "message": "Must provide either 'resource_block' (with optional 'resource_address') or 'code_content'.",
+        }
+
+    # Format the file with terraform fmt
+    _run_terraform(["fmt", clean_name], GCP_ARTIFACTS_DIR)
+
+    updated_text = target_path.read_text(encoding="utf-8")
+    return {
+        "status": "SUCCESS",
+        "file_name": clean_name,
+        "path": str(target_path.resolve()),
+        "updated_content": updated_text,
+        "message": (
+            f"Successfully updated '{clean_name}' in 'artifacts/gcp'. "
+            "Code has been formatted with 'terraform fmt' and is ready for planning."
+        ),
+    }
+

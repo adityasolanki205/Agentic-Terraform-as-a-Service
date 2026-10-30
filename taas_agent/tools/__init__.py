@@ -5,9 +5,12 @@ from .tools import (
     generate_resource_files,
     get_request_status,
     list_taas_resources,
+    lookup_terraform_docs,
     plan_deactivate_resource,
     plan_recreate_resource,
     plan_resource,
+    read_artifact_code,
+    update_artifact_code,
     verify_resource,
 )
 
@@ -20,4 +23,8 @@ __all__ = [
     "verify_resource",
     "get_request_status",
     "list_taas_resources",
+    "lookup_terraform_docs",
+    "read_artifact_code",
+    "update_artifact_code",
 ]
+

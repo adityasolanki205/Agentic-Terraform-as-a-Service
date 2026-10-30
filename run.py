@@ -16,9 +16,12 @@ from taas_agent.tools.tools import (
     generate_resource_files,
     get_request_status,
     list_taas_resources,
+    lookup_terraform_docs,
     plan_deactivate_resource,
     plan_recreate_resource,
     plan_resource,
+    read_artifact_code,
+    update_artifact_code,
     verify_resource,
 )
 
@@ -34,7 +37,7 @@ Currently supported resources:
 - Google Cloud Pub/Sub subscription ('gcp.pubsub_subscription' or 'pubsub_subscription'): subscription.tf
 
 WORKFLOWS:
-1. CREATE:
+1. CREATE RESOURCE & PRE-PLAN CUSTOMIZATION:
    - For BigQuery datasets: collect target project ID, location, and dataset ID (resource name).
    - For BigQuery tables:
      * Collect target project ID, location, parent dataset ID, and table ID (resource name).
@@ -51,12 +54,29 @@ WORKFLOWS:
      * Collect target project ID, subscription name (resource name), and parent topic name.
      * Pass parent topic in config: `config={"topic": topic_name}`. Location defaults to 'global'.
    - Call generate_resource_files.
-   - Call plan_resource with the request_id.
+   - CODE REVIEW & PRE-PLAN CUSTOMIZATION:
+     * Display the generated Terraform code to the user in a fenced ```hcl block.
+     * Inform the user: "Here is the generated Terraform code. Would you like to review, add custom configurations (e.g. tags/labels, retention, lifecycle rules), or make any changes before we run Terraform plan? You can also ask me how to configure any attribute, or say 'proceed to plan' when ready."
+     * If the user asks how to configure something (e.g. "how to add tags in resource"):
+       Call lookup_terraform_docs with the resource type and query.
+       Explain the configuration (e.g. tags are configured using `labels = { ... }`) and present the suggested code snippet.
+       Ask if they want to apply this configuration to the artifact.
+     * If the user wants to make changes before plan:
+       Call update_artifact_code (passing the target file and updated resource_block or code_content).
+       Show the updated code to the user.
+     * To inspect artifact files, call read_artifact_code.
+   - When the user confirms they are ready (or says "plan", "proceed to plan", "looks good"):
+     * Call plan_resource with the request_id.
    - Present the plan summary and plan SHA256 digest to the user.
    - When the user confirms apply, call apply_resource.
    - After apply, call verify_resource and report READY only when confirmed.
 
-2. DEACTIVATE / DELETE:
+2. TERRAFORM DOCUMENTATION LOOKUP & CODE SUGGESTIONS:
+   - When asked questions about Terraform resource attributes, syntax, or how to configure features:
+     Call lookup_terraform_docs with the resource_type and query.
+     Explain the setting and provide copy-pasteable HCL code suggestions.
+
+3. DEACTIVATE / DELETE:
    - When user asks to delete a resource, call plan_deactivate_resource.
    - Explain that the specific resource block in its shared .tf file under
      artifacts/gcp has been commented out (#) to preserve configuration,
@@ -64,14 +84,14 @@ WORKFLOWS:
    - When the user confirms apply, call apply_resource.
    - Call verify_resource to confirm deletion from Google Cloud.
 
-3. RECREATE:
+4. RECREATE:
    - When user asks to recreate, call plan_recreate_resource.
    - Explain that the resource block in its shared .tf file under
      artifacts/gcp was uncommented and show the creation plan.
    - When the user confirms apply, call apply_resource.
    - Call verify_resource to confirm readiness.
 
-4. LIST / STATUS:
+5. LIST / STATUS:
    - Use list_taas_resources to view created resources. Only report active resources with status READY or APPLIED.
    - Do not report failed planning attempts or deleted resources as active resources.
    - Use get_request_status to check specific request progress.
@@ -81,6 +101,9 @@ Never invent shell commands or raw HCL. Always use the deterministic tools.
 
 TOOL_FUNCTIONS = {
     "generate_resource_files": generate_resource_files,
+    "read_artifact_code": read_artifact_code,
+    "update_artifact_code": update_artifact_code,
+    "lookup_terraform_docs": lookup_terraform_docs,
     "plan_resource": plan_resource,
     "apply_resource": apply_resource,
     "plan_deactivate_resource": plan_deactivate_resource,
@@ -91,6 +114,7 @@ TOOL_FUNCTIONS = {
 }
 
 TOOL_LIST = list(TOOL_FUNCTIONS.values())
+
 
 
 def run_with_genai_sdk():

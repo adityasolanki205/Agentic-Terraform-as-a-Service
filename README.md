@@ -1,18 +1,24 @@
 # Agentic Terraform as a Service (TaaS)
 
 A multi-cloud, declarative Terraform-as-a-Service platform using Gemini ADK and approved Terraform starters.
-Currently supports Google Cloud BigQuery datasets and BigQuery tables with generic tools ready to expand to more GCP and AWS data engineering resources.
+Currently supports Google Cloud BigQuery datasets, BigQuery tables, Google Cloud Storage (GCS) buckets, Google Cloud Pub/Sub topics, and Pub/Sub subscriptions.
 
 ## How it works
 
-1. **Create Resource**: The ADK agent collects the target project ID, location, parent dataset ID (for tables), resource name, and asks for an optional JSON schema.
-2. **Artifact Generation**: Generic tools manage infrastructure within a single dedicated folder: `artifacts/gcp/`. It maintains a single `main.tf`, `variables.tf`, `dataset.tf` (where all datasets are maintained), and `table.tf` (where all tables are maintained).
-3. **Plan & Pre-flight Inspection**: Terraform initializes the existing versioned GCS remote backend (`taas/<project_id>/gcp`) and runs `terraform plan`. The AST plan validator verifies that *only* the requested resource creation is planned (other resources in the shared file show as `no-op`).
-4. **Approval Gate**: The agent shows the plan summary. Applying requires explicit user approval via ADK's confirmation prompt (`apply` / `dont apply`).
-5. **Apply & Remote State**: Terraform applies the plan, creating the cloud resource and updating the authoritative remote state in GCS (`gs://<bucket>/taas/<project_id>/gcp`).
-6. **Cloud Verification**: An asynchronous verification tool queries the Google Cloud API to confirm the resource and schema are ready.
-7. **Deactivate / Delete**: When a user asks to delete a resource, the tool comments out only that specific resource block (`#`) in `dataset.tf` or `table.tf` and plans a destroy. Applying it removes the resource from Google Cloud and updates the GCS state, while preserving the commented code in `dataset.tf` / `table.tf` for full auditability and easy recreation.
-8. **Recreate**: When asked to recreate, the tool simply uncomments that resource block in `dataset.tf` or `table.tf` and runs a creation plan and apply.
+1. **Create Resource**: The ADK agent collects the target project ID, location, resource name, and any resource-specific configurations (such as parent dataset ID & optional schema for tables, or parent topic for subscriptions).
+2. **Artifact Generation**: Generic tools manage infrastructure within a single dedicated folder: `artifacts/gcp/`. It maintains a single `main.tf`, `variables.tf`, `dataset.tf`, `table.tf`, `bucket.tf`, `topic.tf`, and `subscription.tf`.
+3. **Pre-Plan Code Review & Customization**:
+   - The generated Terraform HCL code is displayed to the user prior to planning.
+   - Users can review the code and request additions (e.g. adding tags/labels, retention policies, lifecycle rules).
+   - If the user asks how to configure any setting (e.g., *"how to add tags in resource"*), the agent uses `lookup_terraform_docs` to query official Terraform Google provider docs and suggests copy-pasteable HCL code.
+   - Code changes are applied directly to `artifacts/gcp/` using `update_artifact_code` (which runs `terraform fmt` automatically) before `terraform plan` is invoked.
+4. **Plan & Pre-flight Inspection**: Terraform initializes the existing versioned GCS remote backend (`taas/<project_id>/gcp`) and runs `terraform plan`. The AST plan validator verifies that *only* the requested resource change is planned.
+5. **Approval Gate**: The agent shows the plan summary. Applying requires explicit user approval via ADK's confirmation prompt (`apply` / `dont apply`).
+6. **Apply & Remote State**: Terraform applies the plan, creating the cloud resource and updating the authoritative remote state in GCS (`gs://<bucket>/taas/<project_id>/gcp`).
+7. **Cloud Verification**: An asynchronous verification tool queries the Google Cloud API to confirm the resource is ready.
+8. **Deactivate / Delete**: When a user asks to delete a resource, the tool comments out only that specific resource block (`#`) in its shared `.tf` file and plans a destroy. Applying it removes the resource from Google Cloud and updates the GCS state, while preserving the commented code for full auditability and easy recreation.
+9. **Recreate**: When asked to recreate, the tool simply uncomments that resource block and runs a creation plan and apply.
+
 
 ## Project layout
 
