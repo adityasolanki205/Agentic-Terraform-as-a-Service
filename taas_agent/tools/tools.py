@@ -2427,54 +2427,116 @@ def lookup_terraform_docs(resource_type: str, query: str | None = None) -> dict:
     }
 
 
+STARTER_FILE_MAP = {
+    "bucket.tf": STARTERS_DIR / "gcp" / "storage_bucket" / "bucket.tf",
+    "dataset.tf": STARTERS_DIR / "gcp" / "bigquery_dataset" / "dataset.tf",
+    "table.tf": STARTERS_DIR / "gcp" / "bigquery_table" / "table.tf",
+    "topic.tf": STARTERS_DIR / "gcp" / "pubsub_topic" / "topic.tf",
+    "subscription.tf": STARTERS_DIR / "gcp" / "pubsub_subscription" / "subscription.tf",
+    "main.tf": COMMON_STARTER_DIR / "main.tf",
+    "variables.tf": COMMON_STARTER_DIR / "variables.tf",
+}
+
+
 def read_artifact_code(file_name: str | None = None) -> dict:
-    """Read generated Terraform configuration files from artifacts/gcp before planning.
+    """Read Terraform configuration files before planning.
+
+    Already-created artifacts are pulled from `artifacts/gcp/`.
+    Files not yet created in `artifacts/gcp/` are pulled from `terraform_starters/`.
 
     Args:
         file_name: Optional file name (e.g. 'bucket.tf', 'dataset.tf', 'table.tf',
                    'topic.tf', 'subscription.tf', 'main.tf', 'variables.tf').
-                   If omitted or 'all', returns all Terraform files in artifacts/gcp.
+                   If omitted or 'all', returns all Terraform files.
 
     Returns:
-        dict: File contents and directory status.
+        dict: File contents, metadata, and source ('artifacts/gcp' or 'terraform_starters').
     """
-    if not GCP_ARTIFACTS_DIR.exists():
-        return {
-            "status": "NOT_FOUND",
-            "message": "The artifacts/gcp directory has not been generated yet. Run generate_resource_files first.",
-        }
-
     if file_name and file_name.strip().lower() not in ("all", "*"):
         clean_name = Path(file_name.strip()).name
-        target_path = GCP_ARTIFACTS_DIR / clean_name
-        if not target_path.is_file():
-            available = [f.name for f in GCP_ARTIFACTS_DIR.iterdir() if f.is_file() and f.suffix in (".tf", ".tfvars")]
+        artifact_path = GCP_ARTIFACTS_DIR / clean_name
+        starter_path = STARTER_FILE_MAP.get(clean_name)
+
+        if artifact_path.is_file():
+            content = artifact_path.read_text(encoding="utf-8")
+            source = f"artifacts/gcp/{clean_name}"
+            resolved_path = str(artifact_path.resolve())
+        elif starter_path and starter_path.is_file():
+            content = starter_path.read_text(encoding="utf-8")
+            source = str(starter_path.relative_to(PROJECT_ROOT)).replace("\\", "/")
+            resolved_path = str(starter_path.resolve())
+        else:
             return {
                 "status": "NOT_FOUND",
-                "message": f"File '{clean_name}' not found in artifacts/gcp. Available files: {', '.join(available)}",
-                "available_files": available,
+                "message": f"File '{clean_name}' not found in artifacts/gcp or terraform_starters.",
             }
-        content = target_path.read_text(encoding="utf-8")
+
         return {
             "status": "SUCCESS",
             "file_name": clean_name,
-            "path": str(target_path.resolve()),
+            "source": source,
+            "path": resolved_path,
             "lines": len(content.splitlines()),
             "content": content,
         }
 
-    # Return all .tf and .tfvars files
-    files_content = {}
-    for f in sorted(GCP_ARTIFACTS_DIR.iterdir()):
-        if f.is_file() and f.suffix in (".tf", ".tfvars"):
-            files_content[f.name] = f.read_text(encoding="utf-8")
+    # Build combined dictionary of all standard files:
+    # 1. Start with all starter templates from terraform_starters/
+    # 2. Override with any already-created files in artifacts/gcp/
+    files_content: dict[str, str] = {}
+    file_details: dict[str, dict] = {}
+
+    for fname, starter_path in STARTER_FILE_MAP.items():
+        artifact_path = GCP_ARTIFACTS_DIR / fname
+        starter_text = starter_path.read_text(encoding="utf-8") if starter_path.is_file() else ""
+        if artifact_path.is_file():
+            art_text = artifact_path.read_text(encoding="utf-8")
+            files_content[fname] = art_text
+            file_details[fname] = {
+                "content": art_text,
+                "starter_content": starter_text,
+                "source": "artifacts/gcp",
+                "source_path": f"artifacts/gcp/{fname}",
+                "is_artifact": True,
+                "has_resources": bool(re.search(r'^\s*resource\s+"', art_text, re.MULTILINE)),
+            }
+        else:
+            files_content[fname] = starter_text
+            file_details[fname] = {
+                "content": starter_text,
+                "starter_content": starter_text,
+                "source": "terraform_starters",
+                "source_path": str(starter_path.relative_to(PROJECT_ROOT)).replace("\\", "/"),
+                "is_artifact": False,
+                "has_resources": False,
+            }
+
+    # Also include any extra .tf or .tfvars files present in artifacts/gcp/ (such as terraform.tfvars, backend.tfvars)
+    if GCP_ARTIFACTS_DIR.exists():
+        for f in sorted(GCP_ARTIFACTS_DIR.iterdir()):
+            if f.is_file() and f.suffix in (".tf", ".tfvars") and f.name not in files_content:
+                txt = f.read_text(encoding="utf-8")
+                files_content[f.name] = txt
+                file_details[f.name] = {
+                    "content": txt,
+                    "starter_content": "",
+                    "source": "artifacts/gcp",
+                    "source_path": f"artifacts/gcp/{f.name}",
+                    "is_artifact": True,
+                    "has_resources": bool(re.search(r'^\s*resource\s+"', txt, re.MULTILINE)),
+                }
 
     return {
         "status": "SUCCESS",
         "artifact_directory": str(GCP_ARTIFACTS_DIR.resolve()),
+        "starters_directory": str(STARTERS_DIR.resolve()),
         "file_count": len(files_content),
         "files": files_content,
-        "message": f"Retrieved {len(files_content)} artifact file(s) from 'artifacts/gcp'.",
+        "file_details": file_details,
+        "message": (
+            f"Loaded {len(files_content)} Terraform file(s) "
+            "(created files from 'artifacts/gcp', starter templates from 'terraform_starters')."
+        ),
     }
 
 
@@ -2486,8 +2548,8 @@ def update_artifact_code(
 ) -> dict:
     """Make changes to generated Terraform code in artifacts/gcp before planning.
 
-    Allows adding custom configurations (e.g. tags/labels, retention, lifecycle rules)
-    to a resource block or editing a .tf file directly. Automatically formats code with 'terraform fmt'.
+    Copies common starter files into artifacts/gcp if needed, writes the updated .tf code
+    to artifacts/gcp/<file_name>, and formats it with 'terraform fmt'.
 
     Args:
         file_name: Target file in artifacts/gcp (e.g. 'bucket.tf', 'dataset.tf', 'table.tf',
@@ -2507,6 +2569,14 @@ def update_artifact_code(
         }
 
     GCP_ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
+    project_id = os.getenv("GOOGLE_CLOUD_PROJECT", "solar-dialect-264808").strip()
+    location = os.getenv("GOOGLE_CLOUD_LOCATION", "asia-south2").strip()
+    state_bucket = os.getenv("TAAS_STATE_BUCKET", "terraform-implementation").strip()
+
+    # Ensure common starter files (main.tf, variables.tf, terraform.tfvars, backend.tfvars) exist in artifacts/gcp
+    if not (GCP_ARTIFACTS_DIR / "main.tf").is_file() or not (GCP_ARTIFACTS_DIR / "variables.tf").is_file():
+        _ensure_common_artifacts(GCP_ARTIFACTS_DIR, project_id, location, state_bucket)
+
     target_path = GCP_ARTIFACTS_DIR / clean_name
 
     if resource_block:
@@ -2538,17 +2608,21 @@ def update_artifact_code(
         }
 
     # Format the file with terraform fmt
-    _run_terraform(["fmt", clean_name], GCP_ARTIFACTS_DIR)
+    fmt_res = _run_terraform(["fmt", clean_name], GCP_ARTIFACTS_DIR)
+    fmt_status = "formatted with terraform fmt" if fmt_res.get("returncode") == 0 else "saved (terraform fmt skipped)"
 
     updated_text = target_path.read_text(encoding="utf-8")
     return {
         "status": "SUCCESS",
         "file_name": clean_name,
+        "source": "artifacts/gcp",
         "path": str(target_path.resolve()),
+        "formatting": fmt_status,
+        "content": updated_text,
         "updated_content": updated_text,
         "message": (
-            f"Successfully updated '{clean_name}' in 'artifacts/gcp'. "
-            "Code has been formatted with 'terraform fmt' and is ready for planning."
+            f"Successfully saved '{clean_name}' to 'artifacts/gcp/{clean_name}' ({fmt_status}). "
+            "Ready for planning against GCS remote state."
         ),
     }
 
