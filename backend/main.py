@@ -25,6 +25,14 @@ if str(PROJECT_ROOT) not in sys.path:
 
 load_dotenv(PROJECT_ROOT / ".env")
 
+# Preserve regional setting for Terraform GCP resources (default asia-south2),
+# while ensuring Vertex AI Gemini API always routes through the 'global' endpoint
+# (calling Vertex AI Gemini in asia-south2 returns 501 UNIMPLEMENTED).
+_configured_loc = os.getenv("GOOGLE_CLOUD_LOCATION", "asia-south2").strip()
+if _configured_loc and _configured_loc.lower() != "global":
+    os.environ.setdefault("TAAS_DEFAULT_REGION", _configured_loc)
+os.environ["GOOGLE_CLOUD_LOCATION"] = os.getenv("VERTEX_AI_LOCATION", "global")
+
 if not os.getenv("GEMINI_API_KEY"):
     os.environ.setdefault("GOOGLE_GENAI_USE_VERTEXAI", "TRUE")
 
@@ -307,7 +315,7 @@ def _ensure_request_record_for_file(file_name: str) -> Optional[str]:
     cloud_name = name_match.group(1) if name_match else tf_name
 
     project_id = os.getenv("GOOGLE_CLOUD_PROJECT", "solar-dialect-264808").strip()
-    location = os.getenv("GOOGLE_CLOUD_LOCATION", "asia-south2").strip()
+    location = os.getenv("TAAS_DEFAULT_REGION", "asia-south2").strip()
     request_id = str(uuid4())
 
     record = {
@@ -343,26 +351,51 @@ def taas_chat(req: TaaSChatRequest):
             or os.getenv("PROJECT_ID")
             or "solar-dialect-264808"
         )
-        location = os.getenv("GOOGLE_CLOUD_LOCATION", "global")
-        model_name = os.getenv("TAAS_MODEL", "gemini-2.5-flash")
+        preferred_model = os.getenv("TAAS_MODEL", "gemini-3.5-flash-lite")
 
-        if api_key:
-            client = genai.Client(api_key=api_key)
-        else:
-            client = genai.Client(vertexai=True, project=project, location=location)
+        chat_config = types.GenerateContentConfig(
+            system_instruction=TAAS_CHAT_SYSTEM_INSTRUCTION,
+            tools=TAAS_SAFE_CHAT_TOOLS,
+            temperature=0.1,
+        )
 
-        if req.session_id not in _TAAS_SESSIONS:
-            _TAAS_SESSIONS[req.session_id] = client.chats.create(
-                model=model_name,
-                config=types.GenerateContentConfig(
-                    system_instruction=TAAS_CHAT_SYSTEM_INSTRUCTION,
-                    tools=TAAS_SAFE_CHAT_TOOLS,
-                    temperature=0.1,
-                ),
-            )
+        # Vertex AI Gemini models (especially gemini-3.5-flash-lite & gemini-2.5-flash)
+        # require 'global' or 'us-central1' (regional endpoints like asia-south2 return 501 UNIMPLEMENTED).
+        candidates = [
+            ("global", preferred_model),
+            ("global", "gemini-2.5-flash"),
+            ("us-central1", "gemini-2.5-flash"),
+            ("global", "gemini-2.0-flash"),
+            ("us-central1", "gemini-2.0-flash"),
+        ]
 
-        chat = _TAAS_SESSIONS[req.session_id]
-        response = chat.send_message(req.message)
+        response = None
+        last_err = None
+
+        if req.session_id in _TAAS_SESSIONS:
+            try:
+                response = _TAAS_SESSIONS[req.session_id].send_message(req.message)
+            except Exception as session_err:
+                last_err = session_err
+                _TAAS_SESSIONS.pop(req.session_id, None)
+
+        if response is None:
+            for loc, mdl in candidates:
+                try:
+                    if api_key:
+                        client = genai.Client(api_key=api_key)
+                    else:
+                        client = genai.Client(vertexai=True, project=project, location=loc)
+                    chat_session = client.chats.create(model=mdl, config=chat_config)
+                    response = chat_session.send_message(req.message)
+                    _TAAS_SESSIONS[req.session_id] = chat_session
+                    break
+                except Exception as attempt_err:
+                    last_err = attempt_err
+                    continue
+
+        if response is None:
+            raise last_err or RuntimeError("All Gemini model endpoints failed.")
 
         artifacts_data = read_artifact_code()
         req_info = _get_latest_request_info()

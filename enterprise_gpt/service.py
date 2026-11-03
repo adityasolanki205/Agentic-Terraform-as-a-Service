@@ -83,23 +83,28 @@ def _generate_with_llm(system_prompt: str, user_prompt: str, json_mode: bool = F
     from google.genai import types
 
     api_key = os.getenv("GEMINI_API_KEY")
-    location = os.getenv("GOOGLE_CLOUD_LOCATION", "global")
-    if api_key:
-        client = genai.Client(api_key=api_key)
-    else:
-        client = genai.Client(vertexai=True, project=PROJECT_ID, location=location)
-
     config = types.GenerateContentConfig(
         system_instruction=system_prompt,
         temperature=0.0,
         response_mime_type="application/json" if json_mode else "text/plain",
     )
-    resp = client.models.generate_content(
-        model=os.getenv("TAAS_MODEL", "gemini-2.5-flash"),
-        contents=user_prompt,
-        config=config,
-    )
-    return (resp.text or "").strip()
+    preferred_model = os.getenv("TAAS_MODEL", "gemini-3.5-flash-lite")
+    candidates = [
+        ("global", preferred_model),
+        ("global", "gemini-2.5-flash"),
+        ("us-central1", "gemini-2.5-flash"),
+        ("global", "gemini-2.0-flash"),
+    ]
+    last_err = None
+    for loc, mdl in candidates:
+        try:
+            client = genai.Client(api_key=api_key) if api_key else genai.Client(vertexai=True, project=PROJECT_ID, location=loc)
+            resp = client.models.generate_content(model=mdl, contents=user_prompt, config=config)
+            return (resp.text or "").strip()
+        except Exception as err:
+            last_err = err
+            continue
+    raise last_err or RuntimeError("Gemini generation failed.")
 
 
 def extract_features(text: str) -> dict:

@@ -141,26 +141,50 @@ def chat_with_dataops_agent(message: str, session_id: str = "default") -> dict:
         or os.getenv("BQ_PROJECT_ID")
         or "solar-dialect-264808"
     )
-    location = os.getenv("GOOGLE_CLOUD_LOCATION", "global")
-    model_name = os.getenv("DATAOPS_MODEL", "gemini-2.5-flash")
+    preferred_model = os.getenv("DATAOPS_MODEL", os.getenv("TAAS_MODEL", "gemini-3.5-flash-lite"))
 
-    if api_key:
-        client = genai.Client(api_key=api_key)
-    else:
-        client = genai.Client(vertexai=True, project=project, location=location)
+    chat_config = types.GenerateContentConfig(
+        system_instruction=DATAOPS_SYSTEM_INSTRUCTION,
+        tools=DATAOPS_TOOLS,
+        temperature=0.1,
+    )
 
-    if session_id not in _DATAOPS_SESSIONS:
-        _DATAOPS_SESSIONS[session_id] = client.chats.create(
-            model=model_name,
-            config=types.GenerateContentConfig(
-                system_instruction=DATAOPS_SYSTEM_INSTRUCTION,
-                tools=DATAOPS_TOOLS,
-                temperature=0.1,
-            ),
-        )
+    candidates = [
+        ("global", preferred_model),
+        ("global", "gemini-2.5-flash"),
+        ("us-central1", "gemini-2.5-flash"),
+        ("global", "gemini-2.0-flash"),
+        ("us-central1", "gemini-2.0-flash"),
+    ]
 
-    chat = _DATAOPS_SESSIONS[session_id]
-    response = chat.send_message(message)
+    response = None
+    last_err = None
+
+    if session_id in _DATAOPS_SESSIONS:
+        try:
+            response = _DATAOPS_SESSIONS[session_id].send_message(message)
+        except Exception as err:
+            last_err = err
+            _DATAOPS_SESSIONS.pop(session_id, None)
+
+    if response is None:
+        for loc, mdl in candidates:
+            try:
+                if api_key:
+                    client = genai.Client(api_key=api_key)
+                else:
+                    client = genai.Client(vertexai=True, project=project, location=loc)
+                chat_session = client.chats.create(model=mdl, config=chat_config)
+                response = chat_session.send_message(message)
+                _DATAOPS_SESSIONS[session_id] = chat_session
+                break
+            except Exception as err:
+                last_err = err
+                continue
+
+    if response is None:
+        raise last_err or RuntimeError("All Gemini model endpoints failed.")
+
     return {
         "status": "SUCCESS",
         "response": response.text or "Query completed.",
