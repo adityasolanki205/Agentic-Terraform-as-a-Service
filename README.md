@@ -1,181 +1,189 @@
-# Agentic Terraform as a Service (TaaS)
+# Agentic Terraform as a Service (TaaS) & Unified Enterprise AI Studio
 
-A multi-cloud, declarative Terraform-as-a-Service platform using Gemini ADK and approved Terraform starters.
-Currently supports Google Cloud BigQuery datasets, BigQuery tables, Google Cloud Storage (GCS) buckets, Google Cloud Pub/Sub topics, and Pub/Sub subscriptions.
+A unified, declarative **Terraform-as-a-Service (TaaS)** platform and multi-service enterprise AI workspace powered by **Google ADK**, **Vertex AI Gemini**, **FastAPI**, and **React (Vite)**.
 
-## How it works
+It brings three services together under a single web application with role-based access control:
+1. **Terraform-as-a-Service (TaaS Studio)** — Full-featured interactive cloud infrastructure studio for provisioning, customizing, planning, deactivating, and recreating Google Cloud resources (`BigQuery Datasets`, `BigQuery Tables`, `Cloud Storage Buckets`, `Pub/Sub Topics`, and `Pub/Sub Subscriptions`).
+2. **Agentic DataOps** — ServiceNow ITSM Incident Analytics powered by Google BigQuery (`solar-dialect-264808.servicenow_itsm.incidents`) for MTTR, backlog aging, and opened/closed ticket metrics.
+3. **EnterpriseGPT** — Corporate HR & Employee assistant backed by BigQuery (`employee_data`), ChromaDB Vector Search, and Google Cloud Storage for bench analytics, candidate resume search, and policy Q&A.
 
-1. **Create Resource**: The ADK agent collects the target project ID, location, resource name, and any resource-specific configurations (such as parent dataset ID & optional schema for tables, or parent topic for subscriptions).
-2. **Artifact Generation**: Generic tools manage infrastructure within a single dedicated folder: `artifacts/gcp/`. It maintains a single `main.tf`, `variables.tf`, `dataset.tf`, `table.tf`, `bucket.tf`, `topic.tf`, and `subscription.tf`.
-3. **Pre-Plan Code Review & Customization**:
-   - The generated Terraform HCL code is displayed to the user prior to planning.
-   - Users can review the code and request additions (e.g. adding tags/labels, retention policies, lifecycle rules).
-   - If the user asks how to configure any setting (e.g., *"how to add tags in resource"*), the agent uses `lookup_terraform_docs` to query official Terraform Google provider docs and suggests copy-pasteable HCL code.
-   - Code changes are applied directly to `artifacts/gcp/` using `update_artifact_code` (which runs `terraform fmt` automatically) before `terraform plan` is invoked.
-4. **Plan & Pre-flight Inspection**: Terraform initializes the existing versioned GCS remote backend (`taas/<project_id>/gcp`) and runs `terraform plan`. The AST plan validator verifies that *only* the requested resource change is planned.
-5. **Approval Gate**: The agent shows the plan summary. Applying requires explicit user approval via ADK's confirmation prompt (`apply` / `dont apply`).
-6. **Apply & Remote State**: Terraform applies the plan, creating the cloud resource and updating the authoritative remote state in GCS (`gs://<bucket>/taas/<project_id>/gcp`).
-7. **Cloud Verification**: An asynchronous verification tool queries the Google Cloud API to confirm the resource is ready.
-8. **Deactivate / Delete**: When a user asks to delete a resource, the tool comments out only that specific resource block (`#`) in its shared `.tf` file and plans a destroy. Applying it removes the resource from Google Cloud and updates the GCS state, while preserving the commented code for full auditability and easy recreation.
-9. **Recreate**: When asked to recreate, the tool simply uncomments that resource block and runs a creation plan and apply.
+---
 
+## Key Features of TaaS Studio
 
-## Project layout
+1. **Crisp White Enterprise UI with Antigravity-Style Draggable Workbench**:
+   - **Left Sidebar**: `+ New chat` button, persistent **Chats & History** list, and **1-Click TaaS** quick-action buttons.
+   - **Rounded Service Switcher Dropdown**: Seamlessly switch between **Terraform-as-a-Service (TaaS Studio)** and **Agentic DataOps** from a single rounded pill dropdown.
+   - **Cursor-Draggable & Minimizable Right Sidecar Panel**: Drag the vertical splitter bar left or right with your cursor (`26%` to `76%` width, double-click to reset to `54%`), or click the **Minimize** button to collapse the panel into a slim `48px` vertical dock rail.
+   - **Floating Spheres Thinking Indicator**: Displays animated floating spheres (`• • •`) while the agent processes requests.
+2. **Pre-Plan Code Editor (`terraform_starters/` + `artifacts/gcp/`)**:
+   - **Never Blank**: Automatically pulls approved starter templates from `terraform_starters/` when a resource file has not yet been generated, and pulls active files from `artifacts/gcp/` once created.
+   - **Live Editing & Formatting**: Edit `bucket.tf`, `dataset.tf`, `table.tf`, `topic.tf`, `subscription.tf`, `main.tf`, or `variables.tf` directly in the browser or via chat. Saving writes back to `artifacts/gcp/` in Cloud Shell and runs `terraform fmt`.
+3. **Live Terraform Documentation Lookup (Zero Disk Cache)**:
+   - Fetches official HashiCorp Google Provider documentation live on demand (`labels`, `lifecycle_rule`, `retention_policy`, `schema`, etc.) and allows 1-click insertion of HCL snippets into the Pre-Plan editor.
+4. **AST-Validated Terraform Plan & Mandatory Approval Gate**:
+   - Initializes the remote GCS state backend (`gs://<TAAS_STATE_BUCKET>/taas/<project_id>/gcp`) and runs `terraform plan`.
+   - Verifies that *only* the requested resource address is modified before presenting the **Approval Gate** (`apply` / `dont apply`).
+5. **Cloud Inventory Showcase, Deactivation & 1-Click Recreation**:
+   - **Active Resources Panel**: Displays live KPI cards (`Active in GCP`, `Deactivated`, `Primary Region`), filter pills (`All`, `Active`, `Deactivated`), and live search.
+   - **Safe Deactivation**: Commenting out (`#`) only the target resource block in `artifacts/gcp/<file>.tf` and applying destroy removes the cloud resource and updates GCS state while preserving the HCL block for 1-click **Recreate**.
+
+---
+
+## Role-Based Login Credentials
+
+| Role | Username | Password | Accessible Services |
+| :--- | :--- | :--- | :--- |
+| **Cloud Developer** | `dev` | `dev` | **Terraform-as-a-Service (TaaS Studio)** & **Agentic DataOps** (via top dropdown) |
+| **HR Administrator** | `admin` | `admin` | **EnterpriseGPT (HR Portal)** — Bench SQL + Resume & Policy RAG |
+| **Enterprise Employee** | `user` | `user` | **EnterpriseGPT (Employee Portal)** — Corporate Policy Assistant |
+
+---
+
+## Project Layout
 
 ```text
+backend/
+  main.py                              # Unified FastAPI Gateway (/api/taas/*, /api/dataops/*, /api/enterprise/*)
+frontend/
+  vite.config.js                       # Vite server (port 8080) proxying /api -> http://localhost:8000
+  src/
+    main.jsx                           # React entrypoint
+    StudioApp.jsx                      # Unified White-Theme TaaS Studio + Draggable Sidecar + DataOps + EnterpriseGPT
+    StudioLight.css                    # Crisp White / Enterprise Gemini stylesheet & Antigravity splitter styles
 taas_agent/
-  agent.py                             # ADK Agent (gemini-3.5-flash-lite, approval gates)
+  agent.py                             # ADK Agent (TaaSAgent, approval gates)
   skills/terraform-provisioning/SKILL.md # Provisioning & deactivation guidance
   tools/
-    tools.py                           # Generic lifecycle tools (generate, plan, apply, deactivate, recreate, verify)
+    tools.py                           # Deterministic lifecycle tools (generate, read/update code, docs, plan, apply, deactivate, recreate, verify)
+dataops_agent/
+  agent.py                             # ADK Multi-Agent Supervisor for ServiceNow Incident Analytics
+  tools.py                             # BigQuery analytics tools (MTTR, aging, opened/closed counts)
+enterprise_gpt/
+  service.py                           # EnterpriseGPT service (BigQuery bench SQL, ChromaDB RAG, GCS uploads)
 terraform_starters/                    # Approved Terraform templates (source of truth)
   common/
     main.tf                            # GCS backend & Google provider starter
     variables.tf                       # Shared variables starter
   gcp/
-    bigquery_dataset/
-      dataset.tf                       # Dataset resource starter template
-    bigquery_table/
-      table.tf                         # Table resource starter template
-    storage_bucket/
-      bucket.tf                        # GCS bucket starter template
-    pubsub_topic/
-      topic.tf                         # Pub/Sub topic starter template
-    pubsub_subscription/
-      subscription.tf                  # Pub/Sub subscription starter template
-artifacts/                             # Created strictly at RUNTIME from starters
+    bigquery_dataset/dataset.tf        # Dataset resource starter template
+    bigquery_table/table.tf            # Table resource starter template
+    storage_bucket/bucket.tf           # GCS bucket starter template
+    pubsub_topic/topic.tf              # Pub/Sub topic starter template
+    pubsub_subscription/subscription.tf # Pub/Sub subscription starter template
+artifacts/                             # Created at runtime from starters
   gcp/                                 # Single runtime folder for all GCP resources
     main.tf                            # Copied at runtime from common/main.tf
     variables.tf                       # Copied at runtime from common/variables.tf
-    dataset.tf                         # All BigQuery datasets (commented when deleted)
-    table.tf                           # All BigQuery tables (commented when deleted)
-    bucket.tf                          # All GCS buckets (commented when deleted)
-    topic.tf                           # All Pub/Sub topics (commented when deleted)
-    subscription.tf                    # All Pub/Sub subscriptions (commented when deleted)
-    backend.tfvars                     # GCS state config
+    dataset.tf                         # All BigQuery datasets (commented when deactivated)
+    table.tf                           # All BigQuery tables (commented when deactivated)
+    bucket.tf                          # All GCS buckets (commented when deactivated)
+    topic.tf                           # All Pub/Sub topics (commented when deactivated)
+    subscription.tf                    # All Pub/Sub subscriptions (commented when deactivated)
+    backend.tfvars                     # GCS state config (taas/<project_id>/gcp)
     terraform.tfvars                   # Runtime project & location vars
 .taas/requests/                        # Local request records, metadata, and saved plans
 ```
 
-## Quick Start (One-Click Setup)
+---
 
-Run the automated setup script in Google Cloud Shell to install Terraform v1.9.8, setup the virtual environment, install dependencies, and configure environment variables:
+## Quick Start in Google Cloud Shell
+
+### 1. One-Click Environment & Terraform Setup
+Run `setup.sh` once to install persistent Terraform v1.9.8 (`~/.local/bin/terraform`), create the Python virtual environment, install dependencies, and generate `.env`:
 
 ```bash
+cd ~/Agentic-Terraform-as-a-Service
 bash setup.sh
 ```
 
-## Manual Setup in Google Cloud Shell
+### 2. Run the Unified Web Platform (Backend + Frontend)
 
-1. Open the project folder and activate your Python environment:
+Open **two terminal tabs** in Google Cloud Shell:
 
-   ```bash
-   cd ~/Agentic-Terraform-as-a-Service
-   source venv/bin/activate
-   ```
+#### Terminal 1 — Start the FastAPI Backend (Port `8000`)
+```bash
+cd ~/Agentic-Terraform-as-a-Service
+source venv/bin/activate
+pkill -9 -f uvicorn 2>/dev/null || true
+uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
+```
 
-2. Check Terraform is available (Terraform v1.5+ is required; v1.9.8 recommended). In Google Cloud Shell, Terraform is installed persistently to `~/.local/bin/terraform` so it survives container restarts:
+#### Terminal 2 — Start the React Frontend (Port `8080`)
+```bash
+cd ~/Agentic-Terraform-as-a-Service/frontend
+npm install
+npm run dev
+```
 
-   ```bash
-   terraform version
-   ```
+Click the **Web Preview** icon in the top-right corner of Google Cloud Shell → **Preview on port 8080**.
 
-   If missing or broken after a container reset, install it persistently:
+---
 
-   ```bash
-   mkdir -p ~/.local/bin && curl -sLo ~/.local/bin/terraform.zip https://releases.hashicorp.com/terraform/1.9.8/terraform_1.9.8_linux_amd64.zip && unzip -qo ~/.local/bin/terraform.zip -d ~/.local/bin/ && rm ~/.local/bin/terraform.zip && chmod +x ~/.local/bin/terraform && sudo ln -sf ~/.local/bin/terraform /usr/bin/terraform && hash -r
-   ```
+## Alternative Ways to Run TaaS Agent
 
-3. Install the Python dependencies:
+### Option B: Built-in Google ADK Web UI
+```bash
+cd ~/Agentic-Terraform-as-a-Service
+source venv/bin/activate
+adk web --port 8080 --allow_origins "regex:https://.*\.cloudshell\.dev"
+```
 
-   ```bash
-   python -m pip install -r requirements.txt
-   ```
+### Option C: Interactive Terminal CLI
+```bash
+cd ~/Agentic-Terraform-as-a-Service
+source venv/bin/activate
+python run.py
+```
 
-4. Configure Gemini through Vertex AI (using Cloud Shell default credentials):
+---
 
-   ```bash
-   export GOOGLE_GENAI_USE_VERTEXAI=TRUE
-   export GOOGLE_CLOUD_PROJECT="$(gcloud config get-value project)"
-   export GOOGLE_CLOUD_LOCATION="global"
-   ```
+## Example Prompts to Try
 
-5. Set the name of your existing, versioned Terraform state GCS bucket:
-
-   ```bash
-   export TAAS_STATE_BUCKET="YOUR_EXISTING_STATE_BUCKET"
-   ```
-
-6. Start the agent:
-
-   **Option A: Google ADK Web UI (Recommended for Cloud Shell)**
-   
-   Start the server on port **8080** with Cloud Shell regex CORS authorization:
-   ```bash
-   adk web --port 8080 --allow_origins "regex:https://.*\.cloudshell\.dev"
-   ```
-   Then click **Web Preview** (top-right button in Cloud Shell) -> **Preview on port 8080**.
-
-   **Option B: Interactive Terminal CLI**
-   
-   ```bash
-   python run.py
-   ```
-
-7. Ask to create, delete, or recreate resources!
-   - To create a dataset: *"Create a BigQuery dataset named tform in project solar-dialect-264808 in location asia-south2"*
-   - To create a table: *"Create a BigQuery table named customer_orders in dataset tform in project solar-dialect-264808 in location asia-south2"*
-   - To delete a table: *"Delete BigQuery table customer_orders in dataset tform in project solar-dialect-264808"*
-   - To recreate a table: *"Recreate BigQuery table customer_orders in dataset tform in project solar-dialect-264808"*
-   - To list: *"List all created resources"*
+- **Create a GCS Bucket**: *"Create a GCS bucket named taas-demo-raw-bkt in project solar-dialect-264808 in location asia-south2"*
+- **Lookup Live Terraform Docs**: *"How do I add labels and a 30-day lifecycle rule to a GCS bucket?"*
+- **Pre-Plan Code Edit**: *"Add labels env = dev and owner = data-eng to bucket.tf before planning"* (or edit directly in the **Pre-Plan Code** sidecar and click **Save to Artifacts** $\rightarrow$ **Plan**)
+- **Create a BigQuery Dataset**: *"Create a BigQuery dataset named analytics_ds in project solar-dialect-264808 in location asia-south2"*
+- **Create a BigQuery Table**: *"Create a BigQuery table named customer_orders in dataset analytics_ds in project solar-dialect-264808 in location asia-south2"*
+- **Create a Pub/Sub Topic & Subscription**: *"Create a Pub/Sub topic named order-events-topic in solar-dialect-264808"*
+- **Deactivate / Recreate**: Use the **Deactivate** and **Recreate** buttons in the **Active Resources** tab, or ask in chat: *"Delete GCS bucket taas-demo-raw-bkt in project solar-dialect-264808"*
 
 ### Inspecting or Running Terraform Manually
-
-All resources live in `artifacts/gcp/` alongside `backend.tfvars`:
+All generated resources live in `artifacts/gcp/` alongside `backend.tfvars`:
 
 ```bash
-cd artifacts/gcp
+cd ~/Agentic-Terraform-as-a-Service/artifacts/gcp
 terraform init -reconfigure -backend-config=backend.tfvars
 terraform plan
 ```
 
+---
+
 ## Cloud Shell Troubleshooting
 
-### 1. `[Errno 98] Address already in use`
-A previous `adk web` or server process is still bound to port 8080 or 8000. Kill it using:
+### 1. `ERROR: [Errno 98] Address already in use`
+If a previous `uvicorn` or `adk` process was backgrounded (e.g., via `Ctrl + Z` instead of `Ctrl + C`), kill it before restarting:
 ```bash
-fuser -k 8000/tcp 8080/tcp 2>/dev/null || kill -9 $(lsof -t -i:8080) 2>/dev/null || pkill -f "adk"
+pkill -9 -f uvicorn 2>/dev/null || true
+fuser -k 8000/tcp 8080/tcp 2>/dev/null || true
 ```
+*(Always use **`Ctrl + C`** to stop running servers cleanly.)*
 
-### 2. `-bash: /usr/bin/terraform: No such file or directory`
-Google Cloud Shell wipes ephemeral container paths like `/usr/bin/` upon restart, but preserves your `$HOME` (`~`) volume. Run `bash setup.sh` to restore persistent symlinks instantly.
+### 2. `501 UNIMPLEMENTED` from Vertex AI Gemini
+Vertex AI Gemini models (`gemini-3.5-flash-lite` / `gemini-2.5-flash`) are served on the `global` and `us-central1` endpoints rather than regional endpoints like `asia-south2`.
+- Keep `GOOGLE_CLOUD_LOCATION="global"` for Vertex AI while `TAAS_DEFAULT_REGION="asia-south2"` is used for Terraform GCP resources.
+- `backend/main.py` automatically routes Vertex AI requests through `global` with fallback to `gemini-2.5-flash`.
 
-### 3. `ValueError: No API key was provided`
-Google Cloud GenAI requires Vertex AI routing when running without a direct API key. Ensure `GOOGLE_GENAI_USE_VERTEXAI=TRUE` is set:
-```bash
-export GOOGLE_GENAI_USE_VERTEXAI="TRUE"
-export GOOGLE_CLOUD_PROJECT="$(gcloud config get-value project)"
-```
-*(Note: `taas_agent` also auto-detects and sets this from `.env` on import).*
+### 3. `-bash: /usr/bin/terraform: No such file or directory`
+Google Cloud Shell resets `/usr/bin/` across container restarts while preserving `$HOME`. Run `bash setup.sh` to restore the symlink from `~/.local/bin/terraform`.
 
-Use the web interface for the POC. The future EnterpriseGPT integration is out
-of scope for this phase.
+---
 
-## Safety boundaries
+## Safety & Governance Boundaries
 
-- Supported resources: Google Cloud BigQuery datasets (`gcp.bigquery_dataset`) and BigQuery tables (`gcp.bigquery_table`).
-- The agent asks for all required values rather than inferring a project,
-  dataset ID, table ID, or location.
-- Terraform runs as fixed argument lists; the model cannot provide shell
-  commands or raw Terraform source.
-- Only a plan that modifies the expected resource address (`google_bigquery_dataset.requested` or `google_bigquery_table.requested`) is eligible for apply. Any unexpected additional, update, or delete action is strictly blocked.
-- Apply uses the verified SHA-256 plan hash and requires explicit user confirmation (`apply` / `dont apply`).
-- No cloud resources are created until a user approves the apply tool call.
-- Request metadata and plan files are local to the development environment.
-  The Terraform state itself is remote in versioned GCS.
-- Notifications in this POC are replies in the ADK chat.
+- **Approved Starters Only**: All `.tf` files originate from reviewed templates in `terraform_starters/` and are rendered into `artifacts/gcp/`.
+- **Single Authoritative Remote State**: All state changes are tracked in versioned Google Cloud Storage (`gs://<TAAS_STATE_BUCKET>/taas/<project_id>/gcp`).
+- **AST Pre-Flight Plan Check**: Only plans modifying the expected resource address are eligible for apply; any unexpected drift or destructive change is blocked.
+- **Mandatory Human Approval Gate**: Applying any plan requires explicit confirmation (`apply` / `dont apply`) verified against the plan's SHA-256 digest.
+- **Non-Destructive Deactivation History**: Deactivating a resource comments out (`#`) its HCL block in `artifacts/gcp/<file>.tf` so its exact configuration can be audited or recreated with one click.
 
-## Current scope
-
-Phase 1 is Google Cloud only (BigQuery datasets and tables). EnterpriseGPT
-integration, additional Google Cloud resources, and AWS are planned for later phases.
