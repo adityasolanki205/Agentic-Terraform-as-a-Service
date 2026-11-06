@@ -957,6 +957,18 @@ export default function StudioApp() {
                   <div className="bubble-card markdown-body"><ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown></div>
                 </div>
               ))}
+              {basicChatLoading && (
+                <div className="chat-bubble-row assistant">
+                  <div className="bubble-avatar"><Sparkles size={15} /></div>
+                  <div className="bubble-card typing-indicator">
+                    <div className="floating-spheres" aria-label="Thinking">
+                      <span className="sphere" />
+                      <span className="sphere" />
+                      <span className="sphere" />
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
             <div className="floating-composer-wrap">
               <div className="floating-composer">
@@ -1194,12 +1206,11 @@ export default function StudioApp() {
                   <div className="chat-bubble-row assistant">
                     <div className="bubble-avatar"><Sparkles size={15} /></div>
                     <div className="bubble-card typing-indicator">
-                      <Loader2 className="spin" size={15} />
-                      <span>
-                        {runningPlanOrApply
-                          ? 'Executing Terraform CLI against GCS state...'
-                          : 'Generating Terraform configuration...'}
-                      </span>
+                      <div className="floating-spheres" aria-label="Thinking">
+                        <span className="sphere" />
+                        <span className="sphere" />
+                        <span className="sphere" />
+                      </div>
                     </div>
                   </div>
                 )}
@@ -1744,8 +1755,11 @@ export default function StudioApp() {
                 <div className="chat-bubble-row assistant">
                   <div className="bubble-avatar"><Activity size={15} /></div>
                   <div className="bubble-card typing-indicator">
-                    <Loader2 className="spin" size={15} />
-                    <span>Querying ServiceNow incidents in BigQuery...</span>
+                    <div className="floating-spheres" aria-label="Thinking">
+                      <span className="sphere" />
+                      <span className="sphere" />
+                      <span className="sphere" />
+                    </div>
                   </div>
                 </div>
               )}

@@ -22,7 +22,7 @@ if [ ! -x "$USER_BIN/terraform" ] && (! command -v terraform &> /dev/null || ! t
     echo "  -> Installing persistent Terraform v1.9.8 to $USER_BIN..."
     TERRAFORM_VERSION="1.9.8"
     TMP_DIR=$(mktemp -d)
-    curl -sLo "${TMP_DIR}/terraform.zip" "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_amd64.zip"
+    curl -sLo "${TMP_DIR}/terraform.zip" "https://releases.h-ashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_amd64.zip"
     unzip -q "${TMP_DIR}/terraform.zip" -d "${TMP_DIR}"
     
     # 1. Install to persistent home directory so it survives Cloud Shell reboots

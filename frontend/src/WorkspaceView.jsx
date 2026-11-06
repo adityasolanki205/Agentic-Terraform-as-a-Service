@@ -9,7 +9,7 @@ import {
   Server, Activity, Search, PlusCircle, FileCode, MessageSquare, Plus,
   ChevronDown, PanelRightClose, PanelRightOpen, Check, ShieldCheck
 } from 'lucide-react'
-import './WhiteTheme.css'
+import './StudioLight.css'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || ''
 
@@ -1169,601 +1169,603 @@ export default function WorkspaceView() {
         </header>
 
         {selectedService === 'taas' ? (
-            <div
-              ref={workspaceContainerRef}
-              className={`taas-workspace-container ${panelCollapsed ? 'panel-collapsed' : ''} ${isDraggingPanel ? 'is-resizing' : ''}`}
-            >
-              {/* LEFT PANE: Chat Conversation + Approval Gate */}
-              <section className="taas-chat-column">
-                <div className="messages-scroll">
-                  {taasMessages.map((msg, idx) => (
-                    <div key={idx} className={`chat-bubble-row ${msg.role}`}>
-                      <div className="bubble-avatar">
-                        {msg.role === 'user' ? <User size={15} /> : <Sparkles size={15} />}
-                      </div>
-                      <div className="bubble-card markdown-body">
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
-                      </div>
-                    </div>
-                  ))}
-                  {(taasLoading || runningPlanOrApply) && (
-                    <div className="chat-bubble-row assistant">
-                      <div className="bubble-avatar"><Sparkles size={15} /></div>
-                      <div className="bubble-card typing-indicator">
-                        <Loader2 className="spin" size={15} />
-                        <span>
-                          {runningPlanOrApply
-                            ? 'Executing Terraform CLI against GCS state...'
-                            : 'Generating Terraform configuration...'}
-                        </span>
-                      </div>
-                    </div>
-                  )}
-                  <div ref={taasChatEndRef} />
-                </div>
-
-                {pendingPlan && pendingPlan.status === 'AWAITING_APPROVAL' && (
-                  <div className="approval-gate-card">
-                    <div className="approval-header">
-                      <AlertTriangle size={17} />
-                      <div>
-                        <strong>Approval Gate — Plan <code>{pendingPlan.plan_id}</code></strong>
-                        <p>{pendingPlan.plan_summary || 'Review the plan output above before applying to GCP.'}</p>
-                      </div>
-                    </div>
-                    <div className="approval-controls">
-                      <select
-                        value={approvalDecision}
-                        onChange={(e) => setApprovalDecision(e.target.value)}
-                        className="approval-select"
-                        disabled={runningPlanOrApply}
-                      >
-                        <option value="apply">apply — Approve & Provision to GCP</option>
-                        <option value="dont apply">dont apply — Cancel Plan</option>
-                      </select>
-                      <button
-                        className={`approval-confirm-btn ${approvalDecision === 'apply' ? 'approve' : 'cancel'}`}
-                        onClick={handleConfirmPlanDecision}
-                        disabled={runningPlanOrApply}
-                      >
-                        {runningPlanOrApply ? (
-                          <Loader2 className="spin" size={15} />
-                        ) : approvalDecision === 'apply' ? (
-                          <CheckCircle2 size={15} />
-                        ) : (
-                          <XCircle size={15} />
-                        )}
-                        <span>Confirm</span>
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                <div className="floating-composer-wrap">
-                  <div className="floating-composer">
-                    <input
-                      type="text"
-                      placeholder="Ask TaaS to create resources, customize HCL, or search live Terraform docs..."
-                      value={taasInput}
-                      onChange={(e) => setTaasInput(e.target.value)}
-                      onKeyDown={(e) => e.key === 'Enter' && handleChatSend()}
-                      disabled={taasLoading || runningPlanOrApply}
-                    />
-                    <button
-                      className="composer-send-btn"
-                      onClick={() => handleChatSend()}
-                      disabled={taasLoading || runningPlanOrApply || !taasInput.trim()}
-                    >
-                      <Send size={16} />
-                    </button>
-                  </div>
-                </div>
-              </section>
-
-                  {/* ANTIGRAVITY-STYLE CURSOR DRAG RESIZE SPLITTER */ }
-            {!panelCollapsed && (
-                  <div
-                    className={`antigravity-resize-splitter ${isDraggingPanel ? 'dragging' : ''}`}
-                    onMouseDown={(e) => {
-                      e.preventDefault()
-                      setIsDraggingPanel(true)
-                    }}
-                    onDoubleClick={() => setPanelWidthPct(54)}
-                    title="Drag left or right to resize Pre-Plan panel (Double-click to reset)"
-                  >
-                    <div className="splitter-grip-bar" />
-                  </div>
-                )}
-
-                {/* RIGHT PANE: ANTIGRAVITY-STYLE DRAGGABLE & MINIMIZABLE PRE-PLAN WORKBENCH PANEL */}
-                <section
-                  className={`antigravity-side-panel ${panelCollapsed ? 'size-collapsed' : 'size-custom'} ${isDraggingPanel ? 'is-dragging' : ''}`}
-                  style={!panelCollapsed ? { width: `${panelWidthPct}%` } : undefined}
-                >
-                  {panelCollapsed ? (
-                    /* Slim Dock Rail when Minimized */
-                    <div className="collapsed-sidecar-rail">
-                      <button
-                        className="rail-icon-btn"
-                        onClick={() => setPanelCollapsed(false)}
-                        title="Expand Pre-Plan Panel"
-                      >
-                        <PanelRightOpen size={17} />
-                      </button>
-                      <button
-                        className={`rail-icon-btn ${taasRightTab === 'editor' ? 'active' : ''}`}
-                        onClick={() => {
-                          setTaasRightTab('editor')
-                          setPanelCollapsed(false)
-                        }}
-                        title="Pre-Plan Code Editor"
-                      >
-                        <Code2 size={17} />
-                      </button>
-                      <button
-                        className={`rail-icon-btn ${taasRightTab === 'docs' ? 'active' : ''}`}
-                        onClick={() => {
-                          setTaasRightTab('docs')
-                          setPanelCollapsed(false)
-                        }}
-                        title="Live Terraform Docs"
-                      >
-                        <BookOpen size={17} />
-                      </button>
-                      <button
-                        className={`rail-icon-btn ${taasRightTab === 'resources' ? 'active' : ''}`}
-                        onClick={() => {
-                          setTaasRightTab('resources')
-                          setPanelCollapsed(false)
-                          fetchTaasResources()
-                        }}
-                        title="Active Cloud Resources"
-                      >
-                        <Layers size={17} />
-                        {(taasResources.active_count || 0) > 0 && (
-                          <span className="rail-badge">{taasResources.active_count}</span>
-                        )}
-                      </button>
-                    </div>
-                  ) : (
-                    /* Full Floating Workbench Card */
-                    <div className="floating-workbench-card">
-                      <div className="workbench-header-bar">
-                        <div className="workbench-subtabs">
-                          <button
-                            className={`subtab-btn ${taasRightTab === 'editor' ? 'active' : ''}`}
-                            onClick={() => setTaasRightTab('editor')}
-                          >
-                            <Code2 size={15} />
-                            <span>Pre-Plan Code</span>
-                          </button>
-                          <button
-                            className={`subtab-btn ${taasRightTab === 'docs' ? 'active' : ''}`}
-                            onClick={() => setTaasRightTab('docs')}
-                          >
-                            <BookOpen size={15} />
-                            <span>Live Docs</span>
-                          </button>
-                          <button
-                            className={`subtab-btn ${taasRightTab === 'resources' ? 'active' : ''}`}
-                            onClick={() => {
-                              setTaasRightTab('resources')
-                              fetchTaasResources()
-                            }}
-                          >
-                            <Layers size={15} />
-                            <span>Active Resources ({taasResources.active_count || 0})</span>
-                          </button>
-                        </div>
-
-                        {/* Only Minimize Button (Width is controlled by cursor-dragging the left edge) */}
-                        <div className="panel-window-controls">
-                          <button
-                            type="button"
-                            className="win-ctrl-btn"
-                            onClick={() => setPanelCollapsed(true)}
-                            title="Minimize Panel"
-                          >
-                            <PanelRightClose size={15} />
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* SUBTAB 1: PRE-PLAN CODE EDITOR */}
-                      {taasRightTab === 'editor' && (
-                        <div className="editor-pane">
-                          <div className="file-tabs-bar">
-                            {ARTIFACT_FILE_LIST.map((f) => {
-                              const meta = artifactFiles[f.name] || DEFAULT_STARTER_FILES[f.name]
-                              const isCreatedArtifact = meta?.is_artifact
-                              return (
-                                <button
-                                  key={f.name}
-                                  className={`file-tab-pill ${selectedFile === f.name ? 'selected' : ''}`}
-                                  onClick={() => handleSelectArtifactFile(f.name)}
-                                  title={`${f.desc} (${meta?.source_path || ''})`}
-                                >
-                                  <FileCode size={13} />
-                                  <span>{f.label}</span>
-                                  {isCreatedArtifact && (
-                                    <span className="resource-dot" title="Pulled from artifacts/gcp/" />
-                                  )}
-                                </button>
-                              )
-                            })}
-                          </div>
-
-                          <div className="editor-toolbar">
-                            <div className="file-path-label">
-                              <span className={`source-badge ${currentFileMeta.is_artifact ? 'artifact' : 'starter'}`}>
-                                {currentFileMeta.is_artifact ? 'Artifact' : 'Starter'}
-                              </span>
-                              <code>{currentFileMeta.source_path || `terraform_starters/${selectedFile}`}</code>
-                              {editorDirty && <span className="unsaved-pill">● Modified</span>}
-                            </div>
-
-                            <div className="editor-actions">
-                              <button
-                                className="tool-btn secondary"
-                                onClick={handleLoadStarterTemplate}
-                                title="Reset/Pull template from \terraform_starters"
-                              >
-                                <RotateCcw size={13} /> Starter
-                              </button>
-                              <button
-                                className="tool-btn secondary"
-                                onClick={() => fetchTaasArtifacts(selectedFile)}
-                                title="Sync from Cloud Shell disk"
-                              >
-                                <RefreshCw size={13} /> Sync
-                              </button>
-                              <button
-                                className="tool-btn primary"
-                                onClick={handleSaveArtifactCode}
-                                disabled={savingFile}
-                              >
-                                {savingFile ? <Loader2 className="spin" size={13} /> : <Save size={13} />}
-                                <span>Save to Artifacts</span>
-                              </button>
-                              <button
-                                className="tool-btn plan-btn"
-                                onClick={handleRunTerraformPlan}
-                                disabled={runningPlanOrApply}
-                              >
-                                {runningPlanOrApply ? <Loader2 className="spin" size={13} /> : <Play size={13} />}
-                                <span>Plan</span>
-                              </button>
-                            </div>
-                          </div>
-
-                          {editorStatusMsg && <div className="editor-status-banner">{editorStatusMsg}</div>}
-
-                          <textarea
-                            className="hcl-code-textarea"
-                            value={editorContent}
-                            onChange={(e) => {
-                              setEditorContent(e.target.value)
-                              setEditorDirty(true)
-                            }}
-                            spellCheck={false}
-                          />
-                        </div>
-                      )}
-
-                      {/* SUBTAB 2: LIVE TERRAFORM DOCS */}
-                      {taasRightTab === 'docs' && (
-                        <div className="docs-pane">
-                          <form onSubmit={handleLookupDocs} className="docs-search-bar">
-                            <select
-                              value={docResourceType}
-                              onChange={(e) => setDocResourceType(e.target.value)}
-                              className="doc-select"
-                            >
-                              <option value="google_storage_bucket">google_storage_bucket</option>
-                              <option value="google_bigquery_dataset">google_bigquery_dataset</option>
-                              <option value="google_bigquery_table">google_bigquery_table</option>
-                              <option value="google_pubsub_topic">google_pubsub_topic</option>
-                              <option value="google_pubsub_subscription">google_pubsub_subscription</option>
-                            </select>
-                            <input
-                              type="text"
-                              placeholder="Search attribute (labels, lifecycle_rule, retention_policy, schema)..."
-                              value={docQuery}
-                              onChange={(e) => setDocQuery(e.target.value)}
-                            />
-                            <button type="submit" className="tool-btn primary" disabled={loadingDocs}>
-                              {loadingDocs ? <Loader2 className="spin" size={14} /> : <Search size={14} />}
-                              <span>Search</span>
-                            </button>
-                          </form>
-
-                          <div className="docs-results-scroll">
-                            {!docResult ? (
-                              <div className="docs-empty-state">
-                                <BookOpen size={28} />
-                                <h4>Live Terraform Google Provider Docs</h4>
-                                <p>
-                                  Fetches official HashiCorp documentation in real-time (zero disk cache).
-                                  Search for <code>labels</code>, <code>lifecycle_rule</code>, <code>retention_policy</code>, or <code>schema</code>.
-                                </p>
-                              </div>
-                            ) : docResult.status === 'ERROR' ? (
-                              <div className="login-error">{docResult.message}</div>
-                            ) : (
-                              <div className="docs-result-content">
-                                <div className="docs-meta-banner">
-                                  <span><code>{docResult.resource_type}</code></span>
-                                  <a href={docResult.registry_url} target="_blank" rel="noreferrer">
-                                    Terraform Registry ↗
-                                  </a>
-                                </div>
-
-                                {docResult.suggested_hcl_snippet && (
-                                  <div className="doc-card">
-                                    <div className="doc-card-header">
-                                      <h5>Suggested HCL Snippet</h5>
-                                      <button
-                                        className="tool-btn primary"
-                                        onClick={() => handleInsertSnippetToEditor(docResult.suggested_hcl_snippet)}
-                                      >
-                                        <PlusCircle size={13} /> Insert into Editor
-                                      </button>
-                                    </div>
-                                    <pre className="code-block">{docResult.suggested_hcl_snippet}</pre>
-                                  </div>
-                                )}
-
-                                {docResult.matched_argument_documentation?.length > 0 && (
-                                  <div className="doc-card">
-                                    <h5>Argument Reference</h5>
-                                    {docResult.matched_argument_documentation.map((line, i) => (
-                                      <div key={i} className="arg-doc-item markdown-body">
-                                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{line}</ReactMarkdown>
-                                      </div>
-                                    ))}
-                                  </div>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* SUBTAB 3: ENHANCED, BEAUTIFUL ACTIVE RESOURCES SHOWCASE */}
-                      {taasRightTab === 'resources' && (
-                        <div className="resources-pane">
-                          <div className="resources-hero-banner">
-                            <div className="hero-left">
-                              <div className="hero-icon-circle">
-                                <ShieldCheck size={20} />
-                              </div>
-                              <div>
-                                <h4>Cloud Infrastructure Inventory</h4>
-                                <p>Authoritative GCS State: <code>taas/solar-dialect-264808/gcp</code></p>
-                              </div>
-                            </div>
-                            <button
-                              className="tool-btn secondary"
-                              onClick={fetchTaasResources}
-                              disabled={loadingResources}
-                            >
-                              <RefreshCw className={loadingResources ? 'spin' : ''} size={13} /> Sync State
-                            </button>
-                          </div>
-
-                          {/* 3 KPI Summary Cards */}
-                          <div className="resources-summary-grid">
-                            <div className="res-metric-card">
-                              <div className="metric-icon active-bg"><CheckCircle2 size={17} /></div>
-                              <div className="metric-info">
-                                <strong>{taasResources.active_count || 0}</strong>
-                                <span>Active in GCP</span>
-                              </div>
-                            </div>
-                            <div className="res-metric-card">
-                              <div className="metric-icon archived-bg"><RotateCcw size={17} /></div>
-                              <div className="metric-info">
-                                <strong>{archivedTotalCount}</strong>
-                                <span>Deactivated</span>
-                              </div>
-                            </div>
-                            <div className="res-metric-card">
-                              <div className="metric-icon state-bg"><Cloud size={17} /></div>
-                              <div className="metric-info">
-                                <strong>asia-south2</strong>
-                                <span>Primary Region</span>
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* Filter & Search Bar */}
-                          <div className="resources-filter-bar">
-                            <div className="filter-pills-group">
-                              <button
-                                type="button"
-                                className={`filter-pill-btn ${resourceFilter === 'all' ? 'active' : ''}`}
-                                onClick={() => setResourceFilter('all')}
-                              >
-                                All
-                              </button>
-                              <button
-                                type="button"
-                                className={`filter-pill-btn ${resourceFilter === 'active' ? 'active' : ''}`}
-                                onClick={() => setResourceFilter('active')}
-                              >
-                                Active ({taasResources.active_count || 0})
-                              </button>
-                              <button
-                                type="button"
-                                className={`filter-pill-btn ${resourceFilter === 'archived' ? 'active' : ''}`}
-                                onClick={() => setResourceFilter('archived')}
-                              >
-                                Deactivated ({archivedTotalCount})
-                              </button>
-                            </div>
-
-                            <div className="resource-search-input">
-                              <Search size={13} />
-                              <input
-                                type="text"
-                                placeholder="Filter resources..."
-                                value={resourceSearch}
-                                onChange={(e) => setResourceSearch(e.target.value)}
-                              />
-                            </div>
-                          </div>
-
-                          {/* Resource Category Cards */}
-                          <div className="resource-groups-scroll">
-                            {resourceFilter !== 'archived' &&
-                              Object.entries(taasResources.active || {}).map(([category, items]) => {
-                                const meta = CATEGORY_METADATA[category] || {
-                                  label: category.replace('_', ' ').toUpperCase(),
-                                  file: `${category}.tf`,
-                                  icon: Cloud
-                                }
-                                const IconComp = meta.icon
-                                const filteredItems = (items || []).filter(item =>
-                                  !resourceSearch.trim() ||
-                                  item.cloud_name?.toLowerCase().includes(resourceSearch.toLowerCase()) ||
-                                  item.address?.toLowerCase().includes(resourceSearch.toLowerCase())
-                                )
-
-                                return (
-                                  <div key={category} className="resource-category-card">
-                                    <div className="cat-header">
-                                      <div className="cat-title-wrap">
-                                        <span className="cat-service-badge"><IconComp size={15} /></span>
-                                        <strong>{meta.label}</strong>
-                                      </div>
-                                      <span className={`count-badge ${filteredItems.length === 0 ? 'zero' : ''}`}>
-                                        {filteredItems.length} active
-                                      </span>
-                                    </div>
-
-                                    {filteredItems.length === 0 ? (
-                                      <p className="empty-text">No active resources deployed in <code>{meta.file}</code></p>
-                                    ) : (
-                                      <div className="resource-list">
-                                        {filteredItems.map((item, i) => (
-                                          <div key={i} className="resource-row-item">
-                                            <div className="res-item-left">
-                                              <div className="res-top-line">
-                                                <span className="live-status-dot" title="Verified Active in Google Cloud" />
-                                                <span className="res-cloud-title">{item.cloud_name}</span>
-                                                <code className="res-tf-chip">{meta.file}</code>
-                                              </div>
-                                              <span className="res-meta-line">
-                                                Project: <strong>{item.project_id || 'solar-dialect-264808'}</strong>
-                                                {item.dataset_id ? ` • Dataset: ${item.dataset_id}` : ''}
-                                              </span>
-                                            </div>
-                                            <button
-                                              className="deactivate-btn"
-                                              onClick={() => handleDeactivateResource(category, item.tf_name)}
-                                              disabled={loadingResources}
-                                            >
-                                              <Trash2 size={13} /> Deactivate
-                                            </button>
-                                          </div>
-                                        ))}
-                                      </div>
-                                    )}
-                                  </div>
-                                )
-                              })}
-
-                            {resourceFilter !== 'active' &&
-                              Object.entries(taasResources.deactivated || {}).map(([category, items]) => {
-                                const filteredArchived = (items || []).filter(item =>
-                                  !resourceSearch.trim() ||
-                                  item.cloud_name?.toLowerCase().includes(resourceSearch.toLowerCase())
-                                )
-                                if (filteredArchived.length === 0) return null
-                                const meta = CATEGORY_METADATA[category] || {
-                                  label: category.toUpperCase(),
-                                  file: `${category}.tf`,
-                                  icon: Layers
-                                }
-                                const IconComp = meta.icon
-                                return (
-                                  <div key={`deact-${category}`} className="resource-category-card">
-                                    <div className="cat-header">
-                                      <div className="cat-title-wrap">
-                                        <span className="cat-service-badge"><IconComp size={15} /></span>
-                                        <strong>{meta.label} (Archived)</strong>
-                                      </div>
-                                      <span className="count-badge archived">{filteredArchived.length} deactivated</span>
-                                    </div>
-                                    <div className="resource-list">
-                                      {filteredArchived.map((item, i) => (
-                                        <div key={i} className="resource-row-item">
-                                          <div className="res-item-left">
-                                            <div className="res-top-line">
-                                              <span className="res-cloud-title">{item.cloud_name}</span>
-                                              <code className="res-tf-chip">Commented in {meta.file}</code>
-                                            </div>
-                                            <span className="res-meta-line">
-                                              Preserved in <code>artifacts/gcp/{meta.file}</code> for 1-click recreation
-                                            </span>
-                                          </div>
-                                          <button
-                                            className="reactivate-btn"
-                                            onClick={() => handleReactivateResource(category, item.tf_name)}
-                                            disabled={loadingResources}
-                                          >
-                                            <RotateCcw size={13} /> Recreate
-                                          </button>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  </div>
-                                )
-                              })}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </section>
-            </div>
-            ) : (
-            <div className="chat-workspace">
+          <div
+            ref={workspaceContainerRef}
+            className={`taas-workspace-container ${panelCollapsed ? 'panel-collapsed' : ''} ${isDraggingPanel ? 'is-resizing' : ''}`}
+          >
+            {/* LEFT PANE: Chat Conversation + Approval Gate */}
+            <section className="taas-chat-column">
               <div className="messages-scroll">
-                {taasMessages.map((m, i) => (
-                  <div key={i} className={`chat-bubble-row ${m.role}`}>
-                    <div className="bubble-avatar">{m.role === 'user' ? <User size={15} /> : <Activity size={15} />}</div>
-                    <div className="bubble-card markdown-body"><ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown></div>
+                {taasMessages.map((msg, idx) => (
+                  <div key={idx} className={`chat-bubble-row ${msg.role}`}>
+                    <div className="bubble-avatar">
+                      {msg.role === 'user' ? <User size={15} /> : <Sparkles size={15} />}
+                    </div>
+                    <div className="bubble-card markdown-body">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+                    </div>
                   </div>
                 ))}
-                {taasLoading && (
+                {(taasLoading || runningPlanOrApply) && (
                   <div className="chat-bubble-row assistant">
-                    <div className="bubble-avatar"><Activity size={15} /></div>
+                    <div className="bubble-avatar"><Sparkles size={15} /></div>
                     <div className="bubble-card typing-indicator">
-                      <Loader2 className="spin" size={15} />
-                      <span>Querying ServiceNow incidents in BigQuery...</span>
+                      <div className="floating-spheres" aria-label="Thinking">
+                        <span className="sphere" />
+                        <span className="sphere" />
+                        <span className="sphere" />
+                      </div>
                     </div>
                   </div>
                 )}
                 <div ref={taasChatEndRef} />
               </div>
+
+              {pendingPlan && pendingPlan.status === 'AWAITING_APPROVAL' && (
+                <div className="approval-gate-card">
+                  <div className="approval-header">
+                    <AlertTriangle size={17} />
+                    <div>
+                      <strong>Approval Gate — Plan <code>{pendingPlan.plan_id}</code></strong>
+                      <p>{pendingPlan.plan_summary || 'Review the plan output above before applying to GCP.'}</p>
+                    </div>
+                  </div>
+                  <div className="approval-controls">
+                    <select
+                      value={approvalDecision}
+                      onChange={(e) => setApprovalDecision(e.target.value)}
+                      className="approval-select"
+                      disabled={runningPlanOrApply}
+                    >
+                      <option value="apply">apply — Approve & Provision to GCP</option>
+                      <option value="dont apply">dont apply — Cancel Plan</option>
+                    </select>
+                    <button
+                      className={`approval-confirm-btn ${approvalDecision === 'apply' ? 'approve' : 'cancel'}`}
+                      onClick={handleConfirmPlanDecision}
+                      disabled={runningPlanOrApply}
+                    >
+                      {runningPlanOrApply ? (
+                        <Loader2 className="spin" size={15} />
+                      ) : approvalDecision === 'apply' ? (
+                        <CheckCircle2 size={15} />
+                      ) : (
+                        <XCircle size={15} />
+                      )}
+                      <span>Confirm</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
               <div className="floating-composer-wrap">
                 <div className="floating-composer">
                   <input
                     type="text"
-                    placeholder="Ask Agentic DataOps about ServiceNow incidents, MTTR, or backlog aging..."
+                    placeholder="Ask TaaS to create resources, customize HCL, or search live Terraform docs..."
                     value={taasInput}
                     onChange={(e) => setTaasInput(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && handleChatSend()}
+                    disabled={taasLoading || runningPlanOrApply}
                   />
-                  <button className="composer-send-btn" onClick={() => handleChatSend()}>
+                  <button
+                    className="composer-send-btn"
+                    onClick={() => handleChatSend()}
+                    disabled={taasLoading || runningPlanOrApply || !taasInput.trim()}
+                  >
                     <Send size={16} />
                   </button>
                 </div>
               </div>
+            </section>
+
+            {/* ANTIGRAVITY-STYLE CURSOR DRAG RESIZE SPLITTER */}
+            {!panelCollapsed && (
+              <div
+                className={`antigravity-resize-splitter ${isDraggingPanel ? 'dragging' : ''}`}
+                onMouseDown={(e) => {
+                  e.preventDefault()
+                  setIsDraggingPanel(true)
+                }}
+                onDoubleClick={() => setPanelWidthPct(54)}
+                title="Drag left or right to resize Pre-Plan panel (Double-click to reset)"
+              >
+                <div className="splitter-grip-bar" />
+              </div>
+            )}
+
+            {/* RIGHT PANE: ANTIGRAVITY-STYLE DRAGGABLE & MINIMIZABLE PRE-PLAN WORKBENCH PANEL */}
+            <section
+              className={`antigravity-side-panel ${panelCollapsed ? 'size-collapsed' : 'size-custom'} ${isDraggingPanel ? 'is-dragging' : ''}`}
+              style={!panelCollapsed ? { width: `${panelWidthPct}%` } : undefined}
+            >
+              {panelCollapsed ? (
+                /* Slim Dock Rail when Minimized */
+                <div className="collapsed-sidecar-rail">
+                  <button
+                    className="rail-icon-btn"
+                    onClick={() => setPanelCollapsed(false)}
+                    title="Expand Pre-Plan Panel"
+                  >
+                    <PanelRightOpen size={17} />
+                  </button>
+                  <button
+                    className={`rail-icon-btn ${taasRightTab === 'editor' ? 'active' : ''}`}
+                    onClick={() => {
+                      setTaasRightTab('editor')
+                      setPanelCollapsed(false)
+                    }}
+                    title="Pre-Plan Code Editor"
+                  >
+                    <Code2 size={17} />
+                  </button>
+                  <button
+                    className={`rail-icon-btn ${taasRightTab === 'docs' ? 'active' : ''}`}
+                    onClick={() => {
+                      setTaasRightTab('docs')
+                      setPanelCollapsed(false)
+                    }}
+                    title="Live Terraform Docs"
+                  >
+                    <BookOpen size={17} />
+                  </button>
+                  <button
+                    className={`rail-icon-btn ${taasRightTab === 'resources' ? 'active' : ''}`}
+                    onClick={() => {
+                      setTaasRightTab('resources')
+                      setPanelCollapsed(false)
+                      fetchTaasResources()
+                    }}
+                    title="Active Cloud Resources"
+                  >
+                    <Layers size={17} />
+                    {(taasResources.active_count || 0) > 0 && (
+                      <span className="rail-badge">{taasResources.active_count}</span>
+                    )}
+                  </button>
+                </div>
+              ) : (
+                /* Full Floating Workbench Card */
+                <div className="floating-workbench-card">
+                  <div className="workbench-header-bar">
+                    <div className="workbench-subtabs">
+                      <button
+                        className={`subtab-btn ${taasRightTab === 'editor' ? 'active' : ''}`}
+                        onClick={() => setTaasRightTab('editor')}
+                      >
+                        <Code2 size={15} />
+                        <span>Pre-Plan Code</span>
+                      </button>
+                      <button
+                        className={`subtab-btn ${taasRightTab === 'docs' ? 'active' : ''}`}
+                        onClick={() => setTaasRightTab('docs')}
+                      >
+                        <BookOpen size={15} />
+                        <span>Live Docs</span>
+                      </button>
+                      <button
+                        className={`subtab-btn ${taasRightTab === 'resources' ? 'active' : ''}`}
+                        onClick={() => {
+                          setTaasRightTab('resources')
+                          fetchTaasResources()
+                        }}
+                      >
+                        <Layers size={15} />
+                        <span>Active Resources ({taasResources.active_count || 0})</span>
+                      </button>
+                    </div>
+
+                    {/* Only Minimize Button (Width is controlled by cursor-dragging the left edge) */}
+                    <div className="panel-window-controls">
+                      <button
+                        type="button"
+                        className="win-ctrl-btn"
+                        onClick={() => setPanelCollapsed(true)}
+                        title="Minimize Panel"
+                      >
+                        <PanelRightClose size={15} />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* SUBTAB 1: PRE-PLAN CODE EDITOR */}
+                  {taasRightTab === 'editor' && (
+                    <div className="editor-pane">
+                      <div className="file-tabs-bar">
+                        {ARTIFACT_FILE_LIST.map((f) => {
+                          const meta = artifactFiles[f.name] || DEFAULT_STARTER_FILES[f.name]
+                          const isCreatedArtifact = meta?.is_artifact
+                          return (
+                            <button
+                              key={f.name}
+                              className={`file-tab-pill ${selectedFile === f.name ? 'selected' : ''}`}
+                              onClick={() => handleSelectArtifactFile(f.name)}
+                              title={`${f.desc} (${meta?.source_path || ''})`}
+                            >
+                              <FileCode size={13} />
+                              <span>{f.label}</span>
+                              {isCreatedArtifact && (
+                                <span className="resource-dot" title="Pulled from artifacts/gcp/" />
+                              )}
+                            </button>
+                          )
+                        })}
+                      </div>
+
+                      <div className="editor-toolbar">
+                        <div className="file-path-label">
+                          <span className={`source-badge ${currentFileMeta.is_artifact ? 'artifact' : 'starter'}`}>
+                            {currentFileMeta.is_artifact ? 'Artifact' : 'Starter'}
+                          </span>
+                          <code>{currentFileMeta.source_path || `terraform_starters/${selectedFile}`}</code>
+                          {editorDirty && <span className="unsaved-pill">● Modified</span>}
+                        </div>
+
+                        <div className="editor-actions">
+                          <button
+                            className="tool-btn secondary"
+                            onClick={handleLoadStarterTemplate}
+                            title="Reset/Pull template from \terraform_starters"
+                          >
+                            <RotateCcw size={13} /> Starter
+                          </button>
+                          <button
+                            className="tool-btn secondary"
+                            onClick={() => fetchTaasArtifacts(selectedFile)}
+                            title="Sync from Cloud Shell disk"
+                          >
+                            <RefreshCw size={13} /> Sync
+                          </button>
+                          <button
+                            className="tool-btn primary"
+                            onClick={handleSaveArtifactCode}
+                            disabled={savingFile}
+                          >
+                            {savingFile ? <Loader2 className="spin" size={13} /> : <Save size={13} />}
+                            <span>Save to Artifacts</span>
+                          </button>
+                          <button
+                            className="tool-btn plan-btn"
+                            onClick={handleRunTerraformPlan}
+                            disabled={runningPlanOrApply}
+                          >
+                            {runningPlanOrApply ? <Loader2 className="spin" size={13} /> : <Play size={13} />}
+                            <span>Plan</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      {editorStatusMsg && <div className="editor-status-banner">{editorStatusMsg}</div>}
+
+                      <textarea
+                        className="hcl-code-textarea"
+                        value={editorContent}
+                        onChange={(e) => {
+                          setEditorContent(e.target.value)
+                          setEditorDirty(true)
+                        }}
+                        spellCheck={false}
+                      />
+                    </div>
+                  )}
+
+                  {/* SUBTAB 2: LIVE TERRAFORM DOCS */}
+                  {taasRightTab === 'docs' && (
+                    <div className="docs-pane">
+                      <form onSubmit={handleLookupDocs} className="docs-search-bar">
+                        <select
+                          value={docResourceType}
+                          onChange={(e) => setDocResourceType(e.target.value)}
+                          className="doc-select"
+                        >
+                          <option value="google_storage_bucket">google_storage_bucket</option>
+                          <option value="google_bigquery_dataset">google_bigquery_dataset</option>
+                          <option value="google_bigquery_table">google_bigquery_table</option>
+                          <option value="google_pubsub_topic">google_pubsub_topic</option>
+                          <option value="google_pubsub_subscription">google_pubsub_subscription</option>
+                        </select>
+                        <input
+                          type="text"
+                          placeholder="Search attribute (labels, lifecycle_rule, retention_policy, schema)..."
+                          value={docQuery}
+                          onChange={(e) => setDocQuery(e.target.value)}
+                        />
+                        <button type="submit" className="tool-btn primary" disabled={loadingDocs}>
+                          {loadingDocs ? <Loader2 className="spin" size={14} /> : <Search size={14} />}
+                          <span>Search</span>
+                        </button>
+                      </form>
+
+                      <div className="docs-results-scroll">
+                        {!docResult ? (
+                          <div className="docs-empty-state">
+                            <BookOpen size={28} />
+                            <h4>Live Terraform Google Provider Docs</h4>
+                            <p>
+                              Fetches official HashiCorp documentation in real-time (zero disk cache).
+                              Search for <code>labels</code>, <code>lifecycle_rule</code>, <code>retention_policy</code>, or <code>schema</code>.
+                            </p>
+                          </div>
+                        ) : docResult.status === 'ERROR' ? (
+                          <div className="login-error">{docResult.message}</div>
+                        ) : (
+                          <div className="docs-result-content">
+                            <div className="docs-meta-banner">
+                              <span><code>{docResult.resource_type}</code></span>
+                              <a href={docResult.registry_url} target="_blank" rel="noreferrer">
+                                Terraform Registry ↗
+                              </a>
+                            </div>
+
+                            {docResult.suggested_hcl_snippet && (
+                              <div className="doc-card">
+                                <div className="doc-card-header">
+                                  <h5>Suggested HCL Snippet</h5>
+                                  <button
+                                    className="tool-btn primary"
+                                    onClick={() => handleInsertSnippetToEditor(docResult.suggested_hcl_snippet)}
+                                  >
+                                    <PlusCircle size={13} /> Insert into Editor
+                                  </button>
+                                </div>
+                                <pre className="code-block">{docResult.suggested_hcl_snippet}</pre>
+                              </div>
+                            )}
+
+                            {docResult.matched_argument_documentation?.length > 0 && (
+                              <div className="doc-card">
+                                <h5>Argument Reference</h5>
+                                {docResult.matched_argument_documentation.map((line, i) => (
+                                  <div key={i} className="arg-doc-item markdown-body">
+                                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{line}</ReactMarkdown>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* SUBTAB 3: ENHANCED, BEAUTIFUL ACTIVE RESOURCES SHOWCASE */}
+                  {taasRightTab === 'resources' && (
+                    <div className="resources-pane">
+                      <div className="resources-hero-banner">
+                        <div className="hero-left">
+                          <div className="hero-icon-circle">
+                            <ShieldCheck size={20} />
+                          </div>
+                          <div>
+                            <h4>Cloud Infrastructure Inventory</h4>
+                            <p>Authoritative GCS State: <code>taas/solar-dialect-264808/gcp</code></p>
+                          </div>
+                        </div>
+                        <button
+                          className="tool-btn secondary"
+                          onClick={fetchTaasResources}
+                          disabled={loadingResources}
+                        >
+                          <RefreshCw className={loadingResources ? 'spin' : ''} size={13} /> Sync State
+                        </button>
+                      </div>
+
+                      {/* 3 KPI Summary Cards */}
+                      <div className="resources-summary-grid">
+                        <div className="res-metric-card">
+                          <div className="metric-icon active-bg"><CheckCircle2 size={17} /></div>
+                          <div className="metric-info">
+                            <strong>{taasResources.active_count || 0}</strong>
+                            <span>Active in GCP</span>
+                          </div>
+                        </div>
+                        <div className="res-metric-card">
+                          <div className="metric-icon archived-bg"><RotateCcw size={17} /></div>
+                          <div className="metric-info">
+                            <strong>{archivedTotalCount}</strong>
+                            <span>Deactivated</span>
+                          </div>
+                        </div>
+                        <div className="res-metric-card">
+                          <div className="metric-icon state-bg"><Cloud size={17} /></div>
+                          <div className="metric-info">
+                            <strong>asia-south2</strong>
+                            <span>Primary Region</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Filter & Search Bar */}
+                      <div className="resources-filter-bar">
+                        <div className="filter-pills-group">
+                          <button
+                            type="button"
+                            className={`filter-pill-btn ${resourceFilter === 'all' ? 'active' : ''}`}
+                            onClick={() => setResourceFilter('all')}
+                          >
+                            All
+                          </button>
+                          <button
+                            type="button"
+                            className={`filter-pill-btn ${resourceFilter === 'active' ? 'active' : ''}`}
+                            onClick={() => setResourceFilter('active')}
+                          >
+                            Active ({taasResources.active_count || 0})
+                          </button>
+                          <button
+                            type="button"
+                            className={`filter-pill-btn ${resourceFilter === 'archived' ? 'active' : ''}`}
+                            onClick={() => setResourceFilter('archived')}
+                          >
+                            Deactivated ({archivedTotalCount})
+                          </button>
+                        </div>
+
+                        <div className="resource-search-input">
+                          <Search size={13} />
+                          <input
+                            type="text"
+                            placeholder="Filter resources..."
+                            value={resourceSearch}
+                            onChange={(e) => setResourceSearch(e.target.value)}
+                          />
+                        </div>
+                      </div>
+
+                      {/* Resource Category Cards */}
+                      <div className="resource-groups-scroll">
+                        {resourceFilter !== 'archived' &&
+                          Object.entries(taasResources.active || {}).map(([category, items]) => {
+                            const meta = CATEGORY_METADATA[category] || {
+                              label: category.replace('_', ' ').toUpperCase(),
+                              file: `${category}.tf`,
+                              icon: Cloud
+                            }
+                            const IconComp = meta.icon
+                            const filteredItems = (items || []).filter(item =>
+                              !resourceSearch.trim() ||
+                              item.cloud_name?.toLowerCase().includes(resourceSearch.toLowerCase()) ||
+                              item.address?.toLowerCase().includes(resourceSearch.toLowerCase())
+                            )
+
+                            return (
+                              <div key={category} className="resource-category-card">
+                                <div className="cat-header">
+                                  <div className="cat-title-wrap">
+                                    <span className="cat-service-badge"><IconComp size={15} /></span>
+                                    <strong>{meta.label}</strong>
+                                  </div>
+                                  <span className={`count-badge ${filteredItems.length === 0 ? 'zero' : ''}`}>
+                                    {filteredItems.length} active
+                                  </span>
+                                </div>
+
+                                {filteredItems.length === 0 ? (
+                                  <p className="empty-text">No active resources deployed in <code>{meta.file}</code></p>
+                                ) : (
+                                  <div className="resource-list">
+                                    {filteredItems.map((item, i) => (
+                                      <div key={i} className="resource-row-item">
+                                        <div className="res-item-left">
+                                          <div className="res-top-line">
+                                            <span className="live-status-dot" title="Verified Active in Google Cloud" />
+                                            <span className="res-cloud-title">{item.cloud_name}</span>
+                                            <code className="res-tf-chip">{meta.file}</code>
+                                          </div>
+                                          <span className="res-meta-line">
+                                            Project: <strong>{item.project_id || 'solar-dialect-264808'}</strong>
+                                            {item.dataset_id ? ` • Dataset: ${item.dataset_id}` : ''}
+                                          </span>
+                                        </div>
+                                        <button
+                                          className="deactivate-btn"
+                                          onClick={() => handleDeactivateResource(category, item.tf_name)}
+                                          disabled={loadingResources}
+                                        >
+                                          <Trash2 size={13} /> Deactivate
+                                        </button>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            )
+                          })}
+
+                        {resourceFilter !== 'active' &&
+                          Object.entries(taasResources.deactivated || {}).map(([category, items]) => {
+                            const filteredArchived = (items || []).filter(item =>
+                              !resourceSearch.trim() ||
+                              item.cloud_name?.toLowerCase().includes(resourceSearch.toLowerCase())
+                            )
+                            if (filteredArchived.length === 0) return null
+                            const meta = CATEGORY_METADATA[category] || {
+                              label: category.toUpperCase(),
+                              file: `${category}.tf`,
+                              icon: Layers
+                            }
+                            const IconComp = meta.icon
+                            return (
+                              <div key={`deact-${category}`} className="resource-category-card">
+                                <div className="cat-header">
+                                  <div className="cat-title-wrap">
+                                    <span className="cat-service-badge"><IconComp size={15} /></span>
+                                    <strong>{meta.label} (Archived)</strong>
+                                  </div>
+                                  <span className="count-badge archived">{filteredArchived.length} deactivated</span>
+                                </div>
+                                <div className="resource-list">
+                                  {filteredArchived.map((item, i) => (
+                                    <div key={i} className="resource-row-item">
+                                      <div className="res-item-left">
+                                        <div className="res-top-line">
+                                          <span className="res-cloud-title">{item.cloud_name}</span>
+                                          <code className="res-tf-chip">Commented in {meta.file}</code>
+                                        </div>
+                                        <span className="res-meta-line">
+                                          Preserved in <code>artifacts/gcp/{meta.file}</code> for 1-click recreation
+                                        </span>
+                                      </div>
+                                      <button
+                                        className="reactivate-btn"
+                                        onClick={() => handleReactivateResource(category, item.tf_name)}
+                                        disabled={loadingResources}
+                                      >
+                                        <RotateCcw size={13} /> Recreate
+                                      </button>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )
+                          })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </section>
+          </div>
+        ) : (
+          <div className="chat-workspace">
+            <div className="messages-scroll">
+              {taasMessages.map((m, i) => (
+                <div key={i} className={`chat-bubble-row ${m.role}`}>
+                  <div className="bubble-avatar">{m.role === 'user' ? <User size={15} /> : <Activity size={15} />}</div>
+                  <div className="bubble-card markdown-body"><ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown></div>
+                </div>
+              ))}
+              {taasLoading && (
+                <div className="chat-bubble-row assistant">
+                  <div className="bubble-avatar"><Activity size={15} /></div>
+                  <div className="bubble-card typing-indicator">
+                    <div className="floating-spheres" aria-label="Thinking">
+                      <span className="sphere" />
+                      <span className="sphere" />
+                      <span className="sphere" />
+                    </div>
+                  </div>
+                </div>
+              )}
+              <div ref={taasChatEndRef} />
             </div>
+            <div className="floating-composer-wrap">
+              <div className="floating-composer">
+                <input
+                  type="text"
+                  placeholder="Ask Agentic DataOps about ServiceNow incidents, MTTR, or backlog aging..."
+                  value={taasInput}
+                  onChange={(e) => setTaasInput(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleChatSend()}
+                />
+                <button className="composer-send-btn" onClick={() => handleChatSend()}>
+                  <Send size={16} />
+                </button>
+              </div>
+            </div>
+          </div>
         )}
-          </main>
+      </main>
     </div>
   )
 }

@@ -894,11 +894,49 @@ textarea.hcl-code-textarea {
 }
 
 .typing-indicator {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 0.55rem;
-  color: var(--accent-blue);
-  font-weight: 500;
+  justify-content: center;
+  padding: 0.75rem 1.05rem;
+  min-height: 40px;
+}
+
+.floating-spheres {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.42rem;
+}
+
+.floating-spheres .sphere {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
+  box-shadow: 0 2px 6px rgba(37, 99, 235, 0.28);
+  animation: sphereFloat 1.3s ease-in-out infinite;
+}
+
+.floating-spheres .sphere:nth-child(2) {
+  animation-delay: 0.18s;
+}
+
+.floating-spheres .sphere:nth-child(3) {
+  animation-delay: 0.36s;
+}
+
+@keyframes sphereFloat {
+
+  0%,
+  80%,
+  100% {
+    transform: translateY(0) scale(0.85);
+    opacity: 0.45;
+  }
+
+  40% {
+    transform: translateY(-5px) scale(1.1);
+    opacity: 1;
+  }
 }
 
 /* Approval Gate Card */
