@@ -5,19 +5,17 @@ import remarkGfm from 'remark-gfm'
 import {
   Send, User, Briefcase, Loader2, LogOut, Lock,
   Terminal, Database, Cloud, Code2, Play, CheckCircle2, XCircle, RefreshCw,
-  BookOpen, Layers, AlertTriangle, Trash2, RotateCcw, Save, Sparkles,
-  Server, Activity, Search, PlusCircle, FileCode, MessageSquare, Plus,
-  ChevronDown, PanelRightClose, PanelRightOpen, Check, ShieldCheck
+  Layers, AlertTriangle, Trash2, RotateCcw, Save, Sparkles,
+  Server, Activity, Search, FileCode, MessageSquare, Plus,
+  ChevronDown, ChevronRight, PanelRightClose, PanelRightOpen, Check, ShieldCheck,
+  HardDrive
 } from 'lucide-react'
 import './StudioLight.css'
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || ''
 
-// Exact starter templates from \terraform_starters so Pre-Plan Code is ALWAYS visible immediately
 const DEFAULT_STARTER_FILES = {
   'bucket.tf': {
     content: `# Google Cloud Storage bucket resource template.
-# Sourced at runtime to render resource blocks into artifacts/gcp/bucket.tf.
 resource "google_storage_bucket" "requested" {
   name                        = var.resource_config["bucket_name"]
   project                     = var.project_id
@@ -30,7 +28,6 @@ resource "google_storage_bucket" "requested" {
   }
 }`,
     starter_content: `# Google Cloud Storage bucket resource template.
-# Sourced at runtime to render resource blocks into artifacts/gcp/bucket.tf.
 resource "google_storage_bucket" "requested" {
   name                        = var.resource_config["bucket_name"]
   project                     = var.project_id
@@ -44,19 +41,16 @@ resource "google_storage_bucket" "requested" {
 }`,
     source: 'terraform_starters',
     source_path: 'terraform_starters/gcp/storage_bucket/bucket.tf',
-    is_artifact: false,
-    has_resources: false
+    is_artifact: false
   },
   'dataset.tf': {
     content: `# BigQuery dataset resource template.
-# Sourced at runtime to render resource blocks into artifacts/gcp/dataset.tf.
 resource "google_bigquery_dataset" "requested" {
   project    = var.project_id
   dataset_id = var.resource_config["dataset_id"]
   location   = var.location
 }`,
     starter_content: `# BigQuery dataset resource template.
-# Sourced at runtime to render resource blocks into artifacts/gcp/dataset.tf.
 resource "google_bigquery_dataset" "requested" {
   project    = var.project_id
   dataset_id = var.resource_config["dataset_id"]
@@ -64,56 +58,46 @@ resource "google_bigquery_dataset" "requested" {
 }`,
     source: 'terraform_starters',
     source_path: 'terraform_starters/gcp/bigquery_dataset/dataset.tf',
-    is_artifact: false,
-    has_resources: false
+    is_artifact: false
   },
   'table.tf': {
     content: `# BigQuery table resource template.
-# Sourced at runtime to render resource blocks into artifacts/gcp/table.tf.
 resource "google_bigquery_table" "requested" {
   project             = var.project_id
   dataset_id          = var.resource_config["dataset_id"]
   table_id            = var.resource_config["table_id"]
   deletion_protection = false
-
-  schema = lookup(var.resource_config, "schema", null)
+  schema              = lookup(var.resource_config, "schema", null)
 }`,
     starter_content: `# BigQuery table resource template.
-# Sourced at runtime to render resource blocks into artifacts/gcp/table.tf.
 resource "google_bigquery_table" "requested" {
   project             = var.project_id
   dataset_id          = var.resource_config["dataset_id"]
   table_id            = var.resource_config["table_id"]
   deletion_protection = false
-
-  schema = lookup(var.resource_config, "schema", null)
+  schema              = lookup(var.resource_config, "schema", null)
 }`,
     source: 'terraform_starters',
     source_path: 'terraform_starters/gcp/bigquery_table/table.tf',
-    is_artifact: false,
-    has_resources: false
+    is_artifact: false
   },
   'topic.tf': {
     content: `# Google Cloud Pub/Sub topic resource template.
-# Sourced at runtime to render resource blocks into artifacts/gcp/topic.tf.
 resource "google_pubsub_topic" "requested" {
   name    = var.resource_config["topic_name"]
   project = var.project_id
 }`,
     starter_content: `# Google Cloud Pub/Sub topic resource template.
-# Sourced at runtime to render resource blocks into artifacts/gcp/topic.tf.
 resource "google_pubsub_topic" "requested" {
   name    = var.resource_config["topic_name"]
   project = var.project_id
 }`,
     source: 'terraform_starters',
     source_path: 'terraform_starters/gcp/pubsub_topic/topic.tf',
-    is_artifact: false,
-    has_resources: false
+    is_artifact: false
   },
   'subscription.tf': {
     content: `# Google Cloud Pub/Sub subscription resource template.
-# Sourced at runtime to render resource blocks into artifacts/gcp/subscription.tf.
 resource "google_pubsub_subscription" "requested" {
   name                       = var.resource_config["subscription_name"]
   topic                      = var.resource_config["topic"]
@@ -123,7 +107,6 @@ resource "google_pubsub_subscription" "requested" {
   ack_deadline_seconds       = 20
 }`,
     starter_content: `# Google Cloud Pub/Sub subscription resource template.
-# Sourced at runtime to render resource blocks into artifacts/gcp/subscription.tf.
 resource "google_pubsub_subscription" "requested" {
   name                       = var.resource_config["subscription_name"]
   topic                      = var.resource_config["topic"]
@@ -134,21 +117,17 @@ resource "google_pubsub_subscription" "requested" {
 }`,
     source: 'terraform_starters',
     source_path: 'terraform_starters/gcp/pubsub_subscription/subscription.tf',
-    is_artifact: false,
-    has_resources: false
+    is_artifact: false
   },
   'main.tf': {
     content: `terraform {
   required_version = ">= 1.5.0"
-
   required_providers {
     google = {
       source  = "hashicorp/google"
       version = ">= 5.0, < 8.0"
     }
   }
-
-  # The bucket name is supplied during terraform init. It must already exist.
   backend "gcs" {}
 }
 
@@ -157,15 +136,12 @@ provider "google" {
 }`,
     starter_content: `terraform {
   required_version = ">= 1.5.0"
-
   required_providers {
     google = {
       source  = "hashicorp/google"
       version = ">= 5.0, < 8.0"
     }
   }
-
-  # The bucket name is supplied during terraform init. It must already exist.
   backend "gcs" {}
 }
 
@@ -174,54 +150,32 @@ provider "google" {
 }`,
     source: 'terraform_starters',
     source_path: 'terraform_starters/common/main.tf',
-    is_artifact: false,
-    has_resources: false
+    is_artifact: false
   },
   'variables.tf': {
     content: `variable "project_id" {
-  description = "Google Cloud project ID explicitly provided for this request."
+  description = "Google Cloud project ID."
   type        = string
-
-  validation {
-    condition     = can(regex("^[a-z][a-z0-9-]{4,28}[a-z0-9]$", var.project_id))
-    error_message = "Project ID must be 6-30 characters, start with a lowercase letter, and contain lowercase letters, numbers, or hyphens."
-  }
 }
 
 variable "location" {
-  description = "Google Cloud location explicitly provided for this request."
+  description = "Google Cloud default location."
   type        = string
   default     = "asia-south2"
-
-  validation {
-    condition     = can(regex("^[A-Za-z0-9]([A-Za-z0-9-]{0,62}[A-Za-z0-9])?$", var.location))
-    error_message = "Location must contain letters, numbers, or hyphens and cannot start or end with a hyphen."
-  }
 }`,
     starter_content: `variable "project_id" {
-  description = "Google Cloud project ID explicitly provided for this request."
+  description = "Google Cloud project ID."
   type        = string
-
-  validation {
-    condition     = can(regex("^[a-z][a-z0-9-]{4,28}[a-z0-9]$", var.project_id))
-    error_message = "Project ID must be 6-30 characters, start with a lowercase letter, and contain lowercase letters, numbers, or hyphens."
-  }
 }
 
 variable "location" {
-  description = "Google Cloud location explicitly provided for this request."
+  description = "Google Cloud default location."
   type        = string
   default     = "asia-south2"
-
-  validation {
-    condition     = can(regex("^[A-Za-z0-9]([A-Za-z0-9-]{0,62}[A-Za-z0-9])?$", var.location))
-    error_message = "Location must contain letters, numbers, or hyphens and cannot start or end with a hyphen."
-  }
 }`,
     source: 'terraform_starters',
     source_path: 'terraform_starters/common/variables.tf',
-    is_artifact: false,
-    has_resources: false
+    is_artifact: false
   }
 }
 
@@ -243,17 +197,97 @@ const CATEGORY_METADATA = {
   pubsub_subscription: { label: 'Pub/Sub Subscriptions', file: 'subscription.tf', icon: Server }
 }
 
-const INITIAL_WELCOME_MSG = {
-  role: 'assistant',
-  content:
-    '### Welcome to Terraform-as-a-Service\n\n' +
-    'Project: **`solar-dialect-264808`** • Region: **`asia-south2`** • State: **`gs://.../taas/solar-dialect-264808/gcp`**\n\n' +
-    '- **Pre-Plan Code**: Starter templates from `\\terraform_starters` and created resources from `artifacts/gcp` are loaded in the sidecar panel.\n' +
-    '- **Customize & Plan**: Edit any `.tf` file directly or ask me in chat, then click **Plan**.'
+
+
+// 1-Click TaaS Umbrella Resource Catalog (Only Available Resources in terraform_starters/gcp)
+const TAAS_UMBRELLA_CATALOG = [
+  {
+    id: 'data',
+    label: 'Data',
+    icon: Database,
+    items: [
+      {
+        id: 'bigquery_dataset',
+        label: 'BigQuery Dataset',
+        defaultFile: 'dataset.tf',
+        userTrigger: 'Create a BigQuery Dataset',
+        assistantAsk:
+          'What would you like the **BigQuery Dataset** to be named, and which **region** do you want to create it in (e.g., `asia-south2`)?',
+        buildAgentPrompt: (reply) =>
+          `Create a BigQuery dataset in project solar-dialect-264808 with these details: ${reply} (default region asia-south2 if not specified). Update dataset.tf and run the Terraform plan.`
+      },
+      {
+        id: 'bigquery_table',
+        label: 'BigQuery Table',
+        defaultFile: 'table.tf',
+        userTrigger: 'Create a BigQuery Table',
+        assistantAsk:
+          'What would you like the **BigQuery Table** to be named, which **Dataset ID** should it be created in, and which **region** do you want to use (e.g., `asia-south2`)?',
+        buildAgentPrompt: (reply) =>
+          `Create a BigQuery table in project solar-dialect-264808 with these details: ${reply} (default region asia-south2 if not specified). Update table.tf and run the Terraform plan.`
+      }
+    ]
+  },
+  {
+    id: 'storage',
+    label: 'Storage',
+    icon: HardDrive,
+    items: [
+      {
+        id: 'storage_bucket',
+        label: 'Cloud Storage Bucket',
+        defaultFile: 'bucket.tf',
+        userTrigger: 'Create a Cloud Storage Bucket',
+        assistantAsk:
+          'What would you like the **Cloud Storage Bucket** to be named, and which **region** do you want to create it in (e.g., `asia-south2`)?',
+        buildAgentPrompt: (reply) =>
+          `Create a GCS storage bucket in project solar-dialect-264808 with these details: ${reply} (default region asia-south2 if not specified). Update bucket.tf and run the Terraform plan.`
+      }
+    ]
+  },
+  {
+    id: 'messaging',
+    label: 'Messaging',
+    icon: Server,
+    items: [
+      {
+        id: 'pubsub_topic',
+        label: 'Pub/Sub Topic',
+        defaultFile: 'topic.tf',
+        userTrigger: 'Create a Pub/Sub Topic',
+        assistantAsk:
+          'What would you like the **Pub/Sub Topic** to be named, and which **region** do you want to create it in (e.g., `asia-south2`)?',
+        buildAgentPrompt: (reply) =>
+          `Create a Pub/Sub topic in project solar-dialect-264808 with these details: ${reply}. Update topic.tf and run the Terraform plan.`
+      },
+      {
+        id: 'pubsub_subscription',
+        label: 'Pub/Sub Subscription',
+        defaultFile: 'subscription.tf',
+        userTrigger: 'Create a Pub/Sub Subscription',
+        assistantAsk:
+          'What would you like the **Pub/Sub Subscription** to be named, which **Pub/Sub Topic** should it attach to, and in which **region**?',
+        buildAgentPrompt: (reply) =>
+          `Create a Pub/Sub subscription in project solar-dialect-264808 with these details: ${reply}. Update subscription.tf and run the Terraform plan.`
+      }
+    ]
+  }
+]
+
+const API_BASE = import.meta.env.VITE_API_BASE_URL || ''
+
+function ThinkingSpheres() {
+  return (
+    <div className="floating-spheres" aria-label="Thinking">
+      <span className="sphere" />
+      <span className="sphere" />
+      <span className="sphere" />
+    </div>
+  )
 }
 
 export default function StudioApp() {
-  // Authentication & Role State
+  // 1. Auth & Service State
   const [authUser, setAuthUser] = useState({
     username: 'dev',
     role: 'developer',
@@ -262,96 +296,30 @@ export default function StudioApp() {
   const [usernameInput, setUsernameInput] = useState('')
   const [passwordInput, setPasswordInput] = useState('')
   const [loginError, setLoginError] = useState('')
-
-  // Custom Rounded Service Dropdown ('taas' | 'dataops')
   const [selectedService, setSelectedService] = useState('taas')
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const dropdownRef = useRef(null)
 
-  // Antigravity-style Right Workbench Panel: Minimize state + Cursor-Draggable Width (%)
+  // 2. Right Panel State (Minimize + Cursor Drag Width)
   const [panelCollapsed, setPanelCollapsed] = useState(false)
   const [panelWidthPct, setPanelWidthPct] = useState(54)
   const [isDraggingPanel, setIsDraggingPanel] = useState(false)
   const workspaceContainerRef = useRef(null)
-
-  // Active Resources Filter State
-  const [resourceFilter, setResourceFilter] = useState('all')
-  const [resourceSearch, setResourceSearch] = useState('')
-
-  // ============================================================================
-  // CHATS & HISTORY STATE
-  // ============================================================================
-  const [chatSessions, setChatSessions] = useState([
-    {
-      id: 'session-1',
-      title: 'GCS & BigQuery Provisioning',
-      service: 'taas',
-      createdAt: 'Just now',
-      messages: [INITIAL_WELCOME_MSG]
-    }
-  ])
-  const [activeSessionId, setActiveSessionId] = useState('session-1')
-
-  const activeSession = chatSessions.find(s => s.id === activeSessionId) || chatSessions[0]
-  const taasMessages = activeSession ? activeSession.messages : [INITIAL_WELCOME_MSG]
-
-  const updateActiveSessionMessages = (updater) => {
-    setChatSessions(prev =>
-      prev.map(session => {
-        if (session.id !== activeSessionId) return session
-        const nextMsgs = typeof updater === 'function' ? updater(session.messages) : updater
-        const firstUserMsg = nextMsgs.find(m => m.role === 'user')
-        const nextTitle = firstUserMsg
-          ? firstUserMsg.content.slice(0, 34) + (firstUserMsg.content.length > 34 ? '...' : '')
-          : session.title
-        return { ...session, messages: nextMsgs, title: nextTitle }
-      })
-    )
-  }
-
-  const handleNewChat = () => {
-    const newId = `session-${Date.now()}`
-    const isDataOps = selectedService === 'dataops'
-    const newSession = {
-      id: newId,
-      title: isDataOps ? 'New DataOps Query' : 'New Infrastructure Chat',
-      service: selectedService,
-      createdAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      messages: [
-        isDataOps
-          ? {
-            role: 'assistant',
-            content: 'Welcome to **Agentic DataOps**. Ask about ServiceNow incidents, MTTR, or backlog aging in `solar-dialect-264808.servicenow_itsm.incidents`.'
-          }
-          : INITIAL_WELCOME_MSG
-      ]
-    }
-    setChatSessions(prev => [newSession, ...prev])
-    setActiveSessionId(newId)
-  }
-
-  const handleDeleteChatSession = (e, idToDelete) => {
-    e.stopPropagation()
-    if (chatSessions.length <= 1) {
-      handleNewChat()
-      setChatSessions(prev => prev.filter(s => s.id !== idToDelete))
-      return
-    }
-    const remaining = chatSessions.filter(s => s.id !== idToDelete)
-    setChatSessions(remaining)
-    if (activeSessionId === idToDelete) {
-      setActiveSessionId(remaining[0].id)
-    }
-  }
-
-  // ============================================================================
-  // TERRAFORM-AS-A-SERVICE (TaaS Studio) STATE
-  // ============================================================================
-  const [taasInput, setTaasInput] = useState('')
-  const [taasLoading, setTaasLoading] = useState(false)
   const [taasRightTab, setTaasRightTab] = useState('editor')
 
-  // Pre-Plan Code Editor State
+  // 3. Chat Sessions State (Starts empty so chat opens in the middle like Gemini)
+  const [chatSessions, setChatSessions] = useState([
+    { id: 'session-1', title: 'New Infrastructure Chat', service: 'taas', createdAt: 'Just now', messages: [] }
+  ])
+  const [activeSessionId, setActiveSessionId] = useState('session-1')
+  const [taasInput, setTaasInput] = useState('')
+  const [taasLoading, setTaasLoading] = useState(false)
+  const taasChatEndRef = useRef(null)
+
+  const activeSession = chatSessions.find((s) => s.id === activeSessionId) || chatSessions[0]
+  const taasMessages = activeSession ? activeSession.messages : []
+
+  // 4. Pre-Plan Editor, Approval Gate, Docs & Resources State
   const [artifactFiles, setArtifactFiles] = useState(DEFAULT_STARTER_FILES)
   const [selectedFile, setSelectedFile] = useState('bucket.tf')
   const [editorContent, setEditorContent] = useState(DEFAULT_STARTER_FILES['bucket.tf'].content)
@@ -359,72 +327,56 @@ export default function StudioApp() {
   const [savingFile, setSavingFile] = useState(false)
   const [editorStatusMsg, setEditorStatusMsg] = useState('')
 
-  // Pending Plan & Mandatory Approval Gate State
   const [pendingPlan, setPendingPlan] = useState(null)
   const [approvalDecision, setApprovalDecision] = useState('apply')
   const [runningPlanOrApply, setRunningPlanOrApply] = useState(false)
 
-  // Active & Deactivated Cloud Resources State
   const [taasResources, setTaasResources] = useState({ active: {}, deactivated: {}, active_count: 0 })
   const [loadingResources, setLoadingResources] = useState(false)
+  const [resourceFilter, setResourceFilter] = useState('all')
+  const [resourceSearch, setResourceSearch] = useState('')
 
-  // Live Terraform Docs Lookup State (No Cache)
-  const [docResourceType, setDocResourceType] = useState('google_storage_bucket')
-  const [docQuery, setDocQuery] = useState('labels lifecycle_rule')
-  const [docResult, setDocResult] = useState(null)
-  const [loadingDocs, setLoadingDocs] = useState(false)
+  // 1-Click TaaS Umbrella Accordion & Chat Follow-up State
+  const [openUmbrella, setOpenUmbrella] = useState('data')
+  const [pendingOneClickItem, setPendingOneClickItem] = useState(null)
 
-  // Basic EnterpriseGPT State (for HR / Employee roles)
+  // 5. EnterpriseGPT State (for HR / Employee roles)
   const [basicChatInput, setBasicChatInput] = useState('')
   const [basicChatLoading, setBasicChatLoading] = useState(false)
-  const [entMessages, setEntMessages] = useState([
-    {
-      role: 'assistant',
-      content: 'Welcome to **EnterpriseGPT**. Ask about HR bench employees, candidate resumes, or company policies.'
-    }
-  ])
+  const [entMessages, setEntMessages] = useState([])
 
-  const taasChatEndRef = useRef(null)
-
-  // Close custom dropdown when clicking outside
+  // Close service dropdown on outside click
   useEffect(() => {
-    const handleClickOutside = (e) => {
+    const onDocClick = (e) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
         setDropdownOpen(false)
       }
     }
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
+    document.addEventListener('mousedown', onDocClick)
+    return () => document.removeEventListener('mousedown', onDocClick)
   }, [])
 
-  // Cursor-dragging resize handler for the Pre-Plan / Sidecar Panel (like Antigravity UI)
+  // Cursor-drag resize handler for right sidecar panel
   useEffect(() => {
     if (!isDraggingPanel) return
-
-    const handleMouseMove = (e) => {
-      const container = workspaceContainerRef.current
-      if (!container) return
-      const rect = container.getBoundingClientRect()
-      if (rect.width <= 0) return
-      const rightWidthPx = rect.right - e.clientX
-      const nextPct = (rightWidthPx / rect.width) * 100
-      const clamped = Math.min(76, Math.max(26, nextPct))
-      setPanelWidthPct(clamped)
+    const onMove = (e) => {
+      const box = workspaceContainerRef.current?.getBoundingClientRect()
+      if (!box || box.width <= 0) return
+      const pct = ((box.right - e.clientX) / box.width) * 100
+      setPanelWidthPct(Math.min(76, Math.max(26, pct)))
     }
-
-    const handleMouseUp = () => {
+    const onUp = () => {
       setIsDraggingPanel(false)
       document.body.style.cursor = ''
       document.body.style.userSelect = ''
     }
-
     document.body.style.cursor = 'col-resize'
     document.body.style.userSelect = 'none'
-    window.addEventListener('mousemove', handleMouseMove)
-    window.addEventListener('mouseup', handleMouseUp)
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
     return () => {
-      window.removeEventListener('mousemove', handleMouseMove)
-      window.removeEventListener('mouseup', handleMouseUp)
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
       document.body.style.cursor = ''
       document.body.style.userSelect = ''
     }
@@ -440,6 +392,46 @@ export default function StudioApp() {
       fetchTaasResources()
     }
   }, [authUser])
+
+  const updateActiveSessionMessages = (updater) => {
+    setChatSessions((prev) =>
+      prev.map((s) => {
+        if (s.id !== activeSessionId) return s
+        const nextMsgs = typeof updater === 'function' ? updater(s.messages) : updater
+        const firstUser = nextMsgs.find((m) => m.role === 'user')
+        const title = firstUser
+          ? firstUser.content.slice(0, 34) + (firstUser.content.length > 34 ? '...' : '')
+          : s.title
+        return { ...s, messages: nextMsgs, title }
+      })
+    )
+  }
+
+  const handleNewChat = () => {
+    const newId = `session-${Date.now()}`
+    const newSession = {
+      id: newId,
+      title: selectedService === 'dataops' ? 'New DataOps Query' : 'New Infrastructure Chat',
+      service: selectedService,
+      createdAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      messages: []
+    }
+    setChatSessions((prev) => [newSession, ...prev])
+    setActiveSessionId(newId)
+    setPendingOneClickItem(null)
+  }
+
+  const handleDeleteChatSession = (e, idToDelete) => {
+    e.stopPropagation()
+    if (chatSessions.length <= 1) {
+      handleNewChat()
+      setChatSessions((prev) => prev.filter((s) => s.id !== idToDelete))
+      return
+    }
+    const remaining = chatSessions.filter((s) => s.id !== idToDelete)
+    setChatSessions(remaining)
+    if (activeSessionId === idToDelete) setActiveSessionId(remaining[0].id)
+  }
 
   const authenticate = (user, pass) => {
     const u = user.trim().toLowerCase()
@@ -469,8 +461,7 @@ export default function StudioApp() {
             content: val,
             source: 'artifacts/gcp',
             source_path: `artifacts/gcp/${fname}`,
-            is_artifact: true,
-            has_resources: val.includes('resource "')
+            is_artifact: true
           }
         } else if (val && typeof val === 'object') {
           merged[fname] = {
@@ -484,10 +475,7 @@ export default function StudioApp() {
     if (rawFiles && typeof rawFiles === 'object') {
       Object.entries(rawFiles).forEach(([fname, txt]) => {
         if (typeof txt === 'string' && txt.trim()) {
-          merged[fname] = {
-            ...(merged[fname] || {}),
-            content: txt
-          }
+          merged[fname] = { ...(merged[fname] || {}), content: txt }
         }
       })
     }
@@ -499,18 +487,17 @@ export default function StudioApp() {
       const res = await axios.get(`${API_BASE}/api/taas/artifacts`)
       const merged = normalizeBackendFiles(res.data.files, res.data.raw_files)
       setArtifactFiles(merged)
-
       const targetFile = preferredFile || selectedFile
       if (merged[targetFile] && !editorDirty) {
         setEditorContent(merged[targetFile].content)
       }
-      if (res.data.pending_plan && res.data.pending_plan.status === 'AWAITING_APPROVAL') {
+      if (res.data.pending_plan?.status === 'AWAITING_APPROVAL') {
         setPendingPlan(res.data.pending_plan)
       } else {
         setPendingPlan(null)
       }
     } catch (err) {
-      console.warn('Using starter templates fallback:', err.message)
+      console.warn('Using starter templates:', err.message)
     }
   }
 
@@ -520,7 +507,7 @@ export default function StudioApp() {
       const res = await axios.get(`${API_BASE}/api/taas/resources`)
       setTaasResources(res.data)
     } catch (err) {
-      console.warn('Could not load active resources:', err.message)
+      console.warn('Could not load resources:', err.message)
     } finally {
       setLoadingResources(false)
     }
@@ -543,23 +530,22 @@ export default function StudioApp() {
     if (starter) {
       setEditorContent(starter)
       setEditorDirty(true)
-      setEditorStatusMsg(`Loaded original starter template from \\terraform_starters for ${selectedFile}.`)
+      setEditorStatusMsg(`Loaded starter template for ${selectedFile}.`)
     }
   }
 
   const handleSaveArtifactCode = async () => {
     setSavingFile(true)
-    setEditorStatusMsg('Copying changes to artifacts/gcp & running terraform fmt...')
+    setEditorStatusMsg('Saving & formatting...')
     try {
       const res = await axios.post(`${API_BASE}/api/taas/artifacts/update`, {
         file_name: selectedFile,
         code_content: editorContent
       })
       if (res.data.status === 'SUCCESS') {
-        const updatedText = res.data.content || res.data.updated_content || editorContent
-        setEditorContent(updatedText)
+        setEditorContent(res.data.content || res.data.updated_content || editorContent)
         setEditorDirty(false)
-        setEditorStatusMsg(`✓ Saved to artifacts/gcp/${selectedFile} (${res.data.formatting || 'formatted'}).`)
+        setEditorStatusMsg(`✓ Saved to artifacts/gcp/${selectedFile}.`)
         if (res.data.files) {
           setArtifactFiles(normalizeBackendFiles(res.data.files, res.data.raw_files))
         }
@@ -574,18 +560,14 @@ export default function StudioApp() {
   }
 
   const handleRunTerraformPlan = async () => {
-    if (editorDirty) {
-      await handleSaveArtifactCode()
-    }
+    if (editorDirty) await handleSaveArtifactCode()
     setRunningPlanOrApply(true)
-    updateActiveSessionMessages(prev => [
+    updateActiveSessionMessages((prev) => [
       ...prev,
       { role: 'user', content: `Run \`terraform plan\` on \`artifacts/gcp/${selectedFile}\`` }
     ])
     try {
-      const res = await axios.post(`${API_BASE}/api/taas/plan`, {
-        file_name: selectedFile
-      })
+      const res = await axios.post(`${API_BASE}/api/taas/plan`, { file_name: selectedFile })
       const data = res.data
       if (data.status === 'AWAITING_APPROVAL') {
         const planObj = data.pending_plan || {
@@ -596,7 +578,7 @@ export default function StudioApp() {
           plan_summary: data.plan_summary
         }
         setPendingPlan(planObj)
-        updateActiveSessionMessages(prev => [
+        updateActiveSessionMessages((prev) => [
           ...prev,
           {
             role: 'assistant',
@@ -607,7 +589,7 @@ export default function StudioApp() {
           }
         ])
       } else {
-        updateActiveSessionMessages(prev => [
+        updateActiveSessionMessages((prev) => [
           ...prev,
           {
             role: 'assistant',
@@ -617,7 +599,7 @@ export default function StudioApp() {
       }
       await fetchTaasArtifacts(selectedFile)
     } catch (err) {
-      updateActiveSessionMessages(prev => [
+      updateActiveSessionMessages((prev) => [
         ...prev,
         { role: 'assistant', content: `Error running terraform plan: ${err.response?.data?.detail || err.message}` }
       ])
@@ -629,7 +611,7 @@ export default function StudioApp() {
   const handleConfirmPlanDecision = async () => {
     if (!pendingPlan) return
     setRunningPlanOrApply(true)
-    updateActiveSessionMessages(prev => [
+    updateActiveSessionMessages((prev) => [
       ...prev,
       { role: 'user', content: `Approval Gate Decision: **${approvalDecision}** for plan \`${pendingPlan.plan_id}\`` }
     ])
@@ -642,42 +624,34 @@ export default function StudioApp() {
       })
       const data = res.data
       if (data.status === 'SUCCESS') {
-        updateActiveSessionMessages(prev => [
+        updateActiveSessionMessages((prev) => [
           ...prev,
           {
             role: 'assistant',
             content:
-              `### Terraform Apply Succeeded (\`${data.plan_id}\`)\n\n` +
-              `${data.message}\n\n` +
-              `*State file synced to GCS bucket.*\n\n` +
+              `### Terraform Apply Succeeded (\`${data.plan_id}\`)\n\n${data.message}\n\n` +
               `\`\`\`\n${(data.apply_output || '').slice(-1800)}\n\`\`\``
           }
         ])
         setPendingPlan(null)
       } else if (data.status === 'CANCELLED') {
-        updateActiveSessionMessages(prev => [
+        updateActiveSessionMessages((prev) => [
           ...prev,
-          {
-            role: 'assistant',
-            content: `### Plan Cancelled (\`${data.plan_id}\`)\n\n${data.message}`
-          }
+          { role: 'assistant', content: `### Plan Cancelled (\`${data.plan_id}\`)\n\n${data.message}` }
         ])
         setPendingPlan(null)
       } else {
-        updateActiveSessionMessages(prev => [
+        updateActiveSessionMessages((prev) => [
           ...prev,
-          {
-            role: 'assistant',
-            content: `### Apply Status: \`${data.status}\`\n\n${data.message || ''}\n\n\`\`\`\n${data.details || ''}\n\`\`\``
-          }
+          { role: 'assistant', content: `### Apply Status: \`${data.status}\`\n\n${data.message || ''}` }
         ])
       }
       await fetchTaasArtifacts(selectedFile)
       await fetchTaasResources()
     } catch (err) {
-      updateActiveSessionMessages(prev => [
+      updateActiveSessionMessages((prev) => [
         ...prev,
-        { role: 'assistant', content: `Error confirming plan decision: ${err.response?.data?.detail || err.message}` }
+        { role: 'assistant', content: `Error confirming plan: ${err.response?.data?.detail || err.message}` }
       ])
     } finally {
       setRunningPlanOrApply(false)
@@ -688,7 +662,7 @@ export default function StudioApp() {
     const promptText = (customPrompt ?? taasInput).trim()
     if (!promptText || taasLoading) return
 
-    updateActiveSessionMessages(prev => [...prev, { role: 'user', content: promptText }])
+    updateActiveSessionMessages((prev) => [...prev, { role: 'user', content: promptText }])
     if (!customPrompt) setTaasInput('')
     setTaasLoading(true)
 
@@ -698,12 +672,12 @@ export default function StudioApp() {
           message: promptText,
           session_id: activeSessionId
         })
-        updateActiveSessionMessages(prev => [
+        updateActiveSessionMessages((prev) => [
           ...prev,
           { role: 'assistant', content: res.data.response || 'Completed.' }
         ])
       } catch (err) {
-        updateActiveSessionMessages(prev => [
+        updateActiveSessionMessages((prev) => [
           ...prev,
           { role: 'assistant', content: `Error querying Agentic DataOps: ${err.message}` }
         ])
@@ -713,32 +687,40 @@ export default function StudioApp() {
       return
     }
 
+    // If user is replying to a 1-Click TaaS chat question (name + region), combine into full agent request
+    const outboundMessage =
+      pendingOneClickItem && !customPrompt
+        ? pendingOneClickItem.buildAgentPrompt(promptText)
+        : promptText
+    if (pendingOneClickItem) {
+      setPendingOneClickItem(null)
+    }
+
     try {
       const res = await axios.post(`${API_BASE}/api/taas/chat`, {
-        message: promptText,
+        message: outboundMessage,
         session_id: activeSessionId
       })
-      updateActiveSessionMessages(prev => [
+      updateActiveSessionMessages((prev) => [
         ...prev,
         { role: 'assistant', content: res.data.response || 'Completed.' }
       ])
       const merged = normalizeBackendFiles(res.data.files, res.data.raw_files)
       setArtifactFiles(merged)
-
       const activeFile = res.data.active_file || selectedFile
       if (merged[activeFile]) {
         setSelectedFile(activeFile)
         setEditorContent(merged[activeFile].content)
         setEditorDirty(false)
       }
-      if (res.data.pending_plan && res.data.pending_plan.status === 'AWAITING_APPROVAL') {
+      if (res.data.pending_plan?.status === 'AWAITING_APPROVAL') {
         setPendingPlan(res.data.pending_plan)
       } else {
         setPendingPlan(null)
       }
       fetchTaasResources()
     } catch (err) {
-      updateActiveSessionMessages(prev => [
+      updateActiveSessionMessages((prev) => [
         ...prev,
         { role: 'assistant', content: `Error communicating with TaaS Agent: ${err.response?.data?.detail || err.message}` }
       ])
@@ -747,39 +729,16 @@ export default function StudioApp() {
     }
   }
 
-  const handleLookupDocs = async (e) => {
-    if (e) e.preventDefault()
-    setLoadingDocs(true)
-    try {
-      const res = await axios.post(`${API_BASE}/api/taas/docs`, {
-        resource_type: docResourceType,
-        query: docQuery
-      })
-      setDocResult(res.data)
-    } catch (err) {
-      setDocResult({ status: 'ERROR', message: err.response?.data?.detail || err.message })
-    } finally {
-      setLoadingDocs(false)
+  const handleOpenResourcePrompt = (item) => {
+    if (item.defaultFile && artifactFiles[item.defaultFile]) {
+      handleSelectArtifactFile(item.defaultFile)
     }
-  }
-
-  const handleInsertSnippetToEditor = (snippet, targetFile = null) => {
-    const fileMap = {
-      google_storage_bucket: 'bucket.tf',
-      google_bigquery_dataset: 'dataset.tf',
-      google_bigquery_table: 'table.tf',
-      google_pubsub_topic: 'topic.tf',
-      google_pubsub_subscription: 'subscription.tf'
-    }
-    const destFile = targetFile || fileMap[docResourceType] || selectedFile
-    const existing = artifactFiles[destFile]?.content || DEFAULT_STARTER_FILES[destFile]?.content || ''
-    const combined = `${existing.trimEnd()}\n\n${snippet.trim()}\n`
-    setSelectedFile(destFile)
-    setEditorContent(combined)
-    setEditorDirty(true)
-    setTaasRightTab('editor')
-    if (panelCollapsed) setPanelCollapsed(false)
-    setEditorStatusMsg(`Inserted snippet into ${destFile}. Click "Save to Artifacts" to update artifacts/gcp/${destFile}.`)
+    setPendingOneClickItem(item)
+    updateActiveSessionMessages((prev) => [
+      ...prev,
+      { role: 'user', content: item.userTrigger },
+      { role: 'assistant', content: item.assistantAsk }
+    ])
   }
 
   const handleDeactivateResource = async (category, resourceName) => {
@@ -789,17 +748,12 @@ export default function StudioApp() {
         resource_category: category,
         resource_name: resourceName
       })
-      updateActiveSessionMessages(prev => [
+      updateActiveSessionMessages((prev) => [
         ...prev,
-        {
-          role: 'assistant',
-          content: `**Deactivation Plan Created for \`${category}.${resourceName}\`:** ${res.data.message || res.data.status}`
-        }
+        { role: 'assistant', content: `**Deactivation Plan Created for \`${category}.${resourceName}\`:** ${res.data.message || res.data.status}` }
       ])
       await fetchTaasArtifacts(selectedFile)
       await fetchTaasResources()
-    } catch (err) {
-      console.error(err)
     } finally {
       setLoadingResources(false)
     }
@@ -812,38 +766,34 @@ export default function StudioApp() {
         resource_category: category,
         resource_name: resourceName
       })
-      updateActiveSessionMessages(prev => [
+      updateActiveSessionMessages((prev) => [
         ...prev,
-        {
-          role: 'assistant',
-          content: `**Recreation Plan Created for \`${category}.${resourceName}\`:** ${res.data.message || res.data.status}`
-        }
+        { role: 'assistant', content: `**Recreation Plan Created for \`${category}.${resourceName}\`:** ${res.data.message || res.data.status}` }
       ])
       await fetchTaasArtifacts(selectedFile)
       await fetchTaasResources()
-    } catch (err) {
-      console.error(err)
     } finally {
       setLoadingResources(false)
     }
   }
 
-  const handleEnterpriseChat = async () => {
-    const text = basicChatInput.trim()
+  const handleEnterpriseChat = async (customText = null) => {
+    const text = (customText ?? basicChatInput).trim()
     if (!text || basicChatLoading) return
-    setBasicChatInput('')
+    if (!customText) setBasicChatInput('')
     setBasicChatLoading(true)
-    setEntMessages(prev => [...prev, { role: 'user', content: text }])
+    setEntMessages((prev) => [...prev, { role: 'user', content: text }])
     try {
       const res = await axios.post(`${API_BASE}/api/enterprise/chat`, { query: text, role: authUser.role })
-      setEntMessages(prev => [...prev, { role: 'assistant', content: res.data.response || 'Done.' }])
+      setEntMessages((prev) => [...prev, { role: 'assistant', content: res.data.response || 'Done.' }])
     } catch (err) {
-      setEntMessages(prev => [...prev, { role: 'assistant', content: `Error: ${err.message}` }])
+      setEntMessages((prev) => [...prev, { role: 'assistant', content: `Error: ${err.message}` }])
     } finally {
       setBasicChatLoading(false)
     }
   }
 
+  // LOGIN SCREEN
   if (!authUser) {
     return (
       <div className="login-page">
@@ -855,7 +805,6 @@ export default function StudioApp() {
               <p>Terraform-as-a-Service • Agentic DataOps • EnterpriseGPT</p>
             </div>
           </div>
-
           <form
             onSubmit={(e) => {
               e.preventDefault()
@@ -892,7 +841,6 @@ export default function StudioApp() {
             {loginError && <div className="login-error">{loginError}</div>}
             <button type="submit" className="primary-login-btn">Continue</button>
           </form>
-
           <div className="quick-role-section">
             <span className="quick-role-label">Quick Role Access</span>
             <div className="role-cards-grid">
@@ -915,22 +863,22 @@ export default function StudioApp() {
     )
   }
 
+  // ENTERPRISE GPT VIEW (HR / EMPLOYEE)
   if (authUser.role === 'hr' || authUser.role === 'employee') {
+    const isEntEmpty = entMessages.length === 0 && !basicChatLoading
     return (
       <div className="platform-shell">
         <aside className="platform-sidebar">
-          <button className="new-chat-btn" onClick={() => setEntMessages([entMessages[0]])}>
+          <button className="new-chat-btn" onClick={() => setEntMessages([])}>
             <Plus size={16} />
             <span>New Chat</span>
           </button>
-
           <div className="sidebar-section">
             <p className="sidebar-label">Workspace</p>
             <button className="prompt-chip-btn" onClick={() => authenticate('dev', 'dev')}>
               <Terminal size={14} /> Switch to Developer (TaaS)
             </button>
           </div>
-
           <div className="sidebar-footer">
             <div className="user-badge-row">
               <div className="user-avatar">{authUser.username[0].toUpperCase()}</div>
@@ -944,61 +892,88 @@ export default function StudioApp() {
             </button>
           </div>
         </aside>
-
         <main className="platform-main">
           <header className="minimal-topbar">
             <span className="minimal-brand-title">EnterpriseGPT ({authUser.role.toUpperCase()})</span>
           </header>
           <div className="chat-workspace">
-            <div className="messages-scroll">
-              {entMessages.map((m, i) => (
-                <div key={i} className={`chat-bubble-row ${m.role}`}>
-                  <div className="bubble-avatar">{m.role === 'user' ? <User size={15} /> : <Sparkles size={15} />}</div>
-                  <div className="bubble-card markdown-body"><ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown></div>
+            {isEntEmpty ? (
+              <div className="gemini-center-stage">
+                <div className="gemini-hero-chips">
+                  <span className="hero-chip"><Sparkles size={13} /> Role: <strong>{authUser.displayName}</strong></span>
+                  <span className="hero-chip"><Database size={13} /> BigQuery + ChromaDB</span>
                 </div>
-              ))}
-              {basicChatLoading && (
-                <div className="chat-bubble-row assistant">
-                  <div className="bubble-avatar"><Sparkles size={15} /></div>
-                  <div className="bubble-card typing-indicator">
-                    <div className="floating-spheres" aria-label="Thinking">
-                      <span className="sphere" />
-                      <span className="sphere" />
-                      <span className="sphere" />
-                    </div>
+                <h1 className="gemini-hero-title">
+                  Hello, <span className="gemini-gradient-text">{authUser.displayName}</span>
+                </h1>
+                <p className="gemini-hero-subtitle">Ask about bench talent, resumes, or company HR policies.</p>
+                <div className="gemini-center-composer-wrap">
+                  <div className="floating-composer gemini-elevated-composer">
+                    <Sparkles size={18} className="composer-lead-icon" />
+                    <input
+                      type="text"
+                      placeholder="Message EnterpriseGPT..."
+                      value={basicChatInput}
+                      onChange={(e) => setBasicChatInput(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && handleEnterpriseChat()}
+                    />
+                    <button className="composer-send-btn" onClick={() => handleEnterpriseChat()}>
+                      <Send size={16} />
+                    </button>
                   </div>
                 </div>
-              )}
-            </div>
-            <div className="floating-composer-wrap">
-              <div className="floating-composer">
-                <input
-                  type="text"
-                  placeholder="Message EnterpriseGPT..."
-                  value={basicChatInput}
-                  onChange={(e) => setBasicChatInput(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleEnterpriseChat()}
-                />
-                <button className="composer-send-btn" onClick={handleEnterpriseChat}>
-                  <Send size={16} />
-                </button>
               </div>
-            </div>
+            ) : (
+              <>
+                <div className="messages-scroll">
+                  {entMessages.map((m, i) => (
+                    <div key={i} className={`chat-bubble-row ${m.role}`}>
+                      <div className="bubble-avatar">{m.role === 'user' ? <User size={15} /> : <Sparkles size={15} />}</div>
+                      <div className="bubble-card markdown-body"><ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown></div>
+                    </div>
+                  ))}
+                  {basicChatLoading && (
+                    <div className="chat-bubble-row assistant">
+                      <div className="bubble-avatar"><Sparkles size={15} /></div>
+                      <div className="bubble-card typing-indicator"><ThinkingSpheres /></div>
+                    </div>
+                  )}
+                </div>
+                <div className="floating-composer-wrap">
+                  <div className="floating-composer">
+                    <input
+                      type="text"
+                      placeholder="Message EnterpriseGPT..."
+                      value={basicChatInput}
+                      onChange={(e) => setBasicChatInput(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && handleEnterpriseChat()}
+                    />
+                    <button className="composer-send-btn" onClick={() => handleEnterpriseChat()}>
+                      <Send size={16} />
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
+  
         </main>
       </div>
     )
   }
 
+  // DEVELOPER VIEW (TAAS STUDIO & AGENTIC DATAOPS)
   const currentFileMeta = artifactFiles[selectedFile] || DEFAULT_STARTER_FILES[selectedFile] || {}
   const archivedTotalCount = Object.values(taasResources.deactivated || {}).reduce(
     (acc, list) => acc + (list?.length || 0),
     0
   )
+  const isChatEmpty = taasMessages.length === 0 && !taasLoading && !runningPlanOrApply && !pendingPlan
 
   return (
     <div className="platform-shell">
-      {/* LEFT SIDEBAR: New Chat + Chats & History + 1-Click TaaS */}
+
+      {/* LEFT SIDEBAR */}
       <aside className="platform-sidebar">
         <button className="new-chat-btn" onClick={handleNewChat}>
           <Plus size={17} />
@@ -1039,48 +1014,44 @@ export default function StudioApp() {
         {selectedService === 'taas' && (
           <div className="sidebar-section">
             <p className="sidebar-label">1-Click TaaS</p>
-            <div className="prompt-chips-vertical">
+            <div className="umbrella-catalog-list">
+              {TAAS_UMBRELLA_CATALOG.map((group) => {
+                const GroupIcon = group.icon
+                const isOpen = openUmbrella === group.id
+                return (
+                  <div key={group.id} className={`umbrella-group ${isOpen ? 'open' : ''}`}>
+                    <button
+                      type="button"
+                      className="umbrella-header-btn"
+                      onClick={() => setOpenUmbrella((prev) => (prev === group.id ? '' : group.id))}
+                    >
+                      <span className="umbrella-title-left">
+                        <GroupIcon size={14} className="umbrella-icon" />
+                        <span>{group.label}</span>
+                      </span>
+                      <ChevronRight size={14} className={`umbrella-chevron ${isOpen ? 'rotated' : ''}`} />
+                    </button>
+                    {isOpen && (
+                      <div className="umbrella-children">
+                        {group.items.map((item) => (
+                          <button
+                            key={item.id}
+                            type="button"
+                            className="umbrella-item-btn"
+                            onClick={() => handleOpenResourcePrompt(item)}
+                          >
+                            <span className="umbrella-item-dot" />
+                            <span>{item.label}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+
               <button
-                className="prompt-chip-btn"
-                onClick={() =>
-                  handleChatSend(
-                    'Create a GCS bucket named taas-demo-raw-bkt in project solar-dialect-264808 (asia-south2) with versioning enabled'
-                  )
-                }
-              >
-                <Cloud size={14} /> GCS Bucket + Labels
-              </button>
-              <button
-                className="prompt-chip-btn"
-                onClick={() =>
-                  handleChatSend(
-                    'Look up official Terraform documentation for google_storage_bucket labels, lifecycle_rule, and retention_policy'
-                  )
-                }
-              >
-                <BookOpen size={14} /> Live Bucket Docs
-              </button>
-              <button
-                className="prompt-chip-btn"
-                onClick={() =>
-                  handleChatSend(
-                    'Create a BigQuery dataset named analytics_ds in solar-dialect-264808 (asia-south2)'
-                  )
-                }
-              >
-                <Database size={14} /> BigQuery Dataset
-              </button>
-              <button
-                className="prompt-chip-btn"
-                onClick={() =>
-                  handleChatSend(
-                    'Create a Pub/Sub topic named order-events-topic in solar-dialect-264808'
-                  )
-                }
-              >
-                <Server size={14} /> Pub/Sub Topic
-              </button>
-              <button
+                type="button"
                 className="prompt-chip-btn highlight"
                 onClick={handleRunTerraformPlan}
                 disabled={runningPlanOrApply}
@@ -1105,16 +1076,14 @@ export default function StudioApp() {
         </div>
       </aside>
 
-      {/* MAIN CANVAS AREA */}
+      {/* MAIN WORKSPACE */}
       <main className="platform-main">
-        {/* Minimal Header with Custom Rounded Service Dropdown & Sidecar Toggle */}
         <header className="minimal-topbar">
-          {/* Custom Rounded Popover Dropdown (No sharp OS select corners!) */}
           <div className="custom-dropdown-container" ref={dropdownRef}>
             <button
               type="button"
               className={`custom-dropdown-trigger ${dropdownOpen ? 'open' : ''}`}
-              onClick={() => setDropdownOpen(prev => !prev)}
+              onClick={() => setDropdownOpen((prev) => !prev)}
             >
               <span className="trigger-icon-badge">
                 {selectedService === 'taas' ? <Cloud size={15} /> : <Activity size={15} />}
@@ -1140,11 +1109,10 @@ export default function StudioApp() {
                   <div className="opt-icon taas"><Cloud size={18} /></div>
                   <div className="opt-text">
                     <strong>Terraform-as-a-Service</strong>
-                    <span>Pre-Plan Code, Live Docs & GCP Provisioning</span>
+                    <span>Pre-Plan Code, Active Resources & GCP Provisioning</span>
                   </div>
                   {selectedService === 'taas' && <Check size={16} className="opt-check" />}
                 </button>
-
                 <button
                   type="button"
                   className={`custom-dropdown-option ${selectedService === 'dataops' ? 'selected' : ''}`}
@@ -1165,17 +1133,11 @@ export default function StudioApp() {
           </div>
 
           <div className="topbar-right-controls">
-            <div className="minimal-state-badge">
-              <span className="dot" />
-              <span>State: <code>taas/solar-dialect-264808/gcp</code></span>
-            </div>
-
             {selectedService === 'taas' && (
               <button
                 type="button"
                 className={`panel-toggle-pill ${!panelCollapsed ? 'active-open' : ''}`}
-                onClick={() => setPanelCollapsed(prev => !prev)}
-                title={panelCollapsed ? 'Expand Pre-Plan Panel' : 'Minimize Pre-Plan Panel'}
+                onClick={() => setPanelCollapsed((prev) => !prev)}
               >
                 {panelCollapsed ? <PanelRightOpen size={15} /> : <PanelRightClose size={15} />}
                 <span>{panelCollapsed ? 'Open Panel' : 'Minimize Panel'}</span>
@@ -1189,93 +1151,167 @@ export default function StudioApp() {
             ref={workspaceContainerRef}
             className={`taas-workspace-container ${panelCollapsed ? 'panel-collapsed' : ''} ${isDraggingPanel ? 'is-resizing' : ''}`}
           >
-            {/* LEFT PANE: Chat Conversation + Approval Gate */}
+            {/* LEFT PANE: Chat starts in the middle like Gemini when empty */}
             <section className="taas-chat-column">
-              <div className="messages-scroll">
-                {taasMessages.map((msg, idx) => (
-                  <div key={idx} className={`chat-bubble-row ${msg.role}`}>
-                    <div className="bubble-avatar">
-                      {msg.role === 'user' ? <User size={15} /> : <Sparkles size={15} />}
-                    </div>
-                    <div className="bubble-card markdown-body">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
-                    </div>
+              {isChatEmpty ? (
+                <div className="gemini-center-stage">
+                  <div className="gemini-hero-chips">
+                    <span className="hero-chip"><Sparkles size={13} /> Project: <strong>solar-dialect-264808</strong></span>
+                    <span className="hero-chip"><Cloud size={13} /> Region: <strong>asia-south2</strong></span>
                   </div>
-                ))}
-                {(taasLoading || runningPlanOrApply) && (
-                  <div className="chat-bubble-row assistant">
-                    <div className="bubble-avatar"><Sparkles size={15} /></div>
-                    <div className="bubble-card typing-indicator">
-                      <div className="floating-spheres" aria-label="Thinking">
-                        <span className="sphere" />
-                        <span className="sphere" />
-                        <span className="sphere" />
-                      </div>
-                    </div>
-                  </div>
-                )}
-                <div ref={taasChatEndRef} />
-              </div>
 
-              {pendingPlan && pendingPlan.status === 'AWAITING_APPROVAL' && (
-                <div className="approval-gate-card">
-                  <div className="approval-header">
-                    <AlertTriangle size={17} />
-                    <div>
-                      <strong>Approval Gate — Plan <code>{pendingPlan.plan_id}</code></strong>
-                      <p>{pendingPlan.plan_summary || 'Review the plan output above before applying to GCP.'}</p>
+                  <h1 className="gemini-hero-title">
+                    What infrastructure <span className="gemini-gradient-text">shall we build?</span>
+                  </h1>
+                  <p className="gemini-hero-subtitle">
+                    Ask in chat or customize HCL in the sidecar panel, then click <strong>Plan</strong>.
+                  </p>
+
+                  <div className="gemini-center-composer-wrap">
+                    <div className="floating-composer gemini-elevated-composer">
+                      <Sparkles size={18} className="composer-lead-icon" />
+                      <input
+                        type="text"
+                        placeholder="Ask TaaS to create or customize GCP infrastructure..."
+                        value={taasInput}
+                        onChange={(e) => setTaasInput(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && handleChatSend()}
+                        disabled={taasLoading || runningPlanOrApply}
+                      />
+                      <button
+                        className="composer-send-btn"
+                        onClick={() => handleChatSend()}
+                        disabled={taasLoading || runningPlanOrApply || !taasInput.trim()}
+                      >
+                        <Send size={16} />
+                      </button>
                     </div>
                   </div>
-                  <div className="approval-controls">
-                    <select
-                      value={approvalDecision}
-                      onChange={(e) => setApprovalDecision(e.target.value)}
-                      className="approval-select"
-                      disabled={runningPlanOrApply}
-                    >
-                      <option value="apply">apply — Approve & Provision to GCP</option>
-                      <option value="dont apply">dont apply — Cancel Plan</option>
-                    </select>
+
+                  <div className="gemini-quick-cards">
                     <button
-                      className={`approval-confirm-btn ${approvalDecision === 'apply' ? 'approve' : 'cancel'}`}
-                      onClick={handleConfirmPlanDecision}
-                      disabled={runningPlanOrApply}
+                      type="button"
+                      className="gemini-quick-card"
+                      onClick={() => handleOpenResourcePrompt(TAAS_UMBRELLA_CATALOG[0].items[0])}
                     >
-                      {runningPlanOrApply ? (
-                        <Loader2 className="spin" size={15} />
-                      ) : approvalDecision === 'apply' ? (
-                        <CheckCircle2 size={15} />
-                      ) : (
-                        <XCircle size={15} />
-                      )}
-                      <span>Confirm</span>
+                      <div className="qcard-icon indigo"><Database size={16} /></div>
+                      <div className="qcard-body">
+                        <strong>BigQuery Dataset</strong>
+                        <span>Analytics dataset</span>
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      className="gemini-quick-card"
+                      onClick={() => handleOpenResourcePrompt(TAAS_UMBRELLA_CATALOG[0].items[1])}
+                    >
+                      <div className="qcard-icon blue"><Database size={16} /></div>
+                      <div className="qcard-body">
+                        <strong>BigQuery Table</strong>
+                        <span>Table in dataset</span>
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      className="gemini-quick-card"
+                      onClick={() => handleOpenResourcePrompt(TAAS_UMBRELLA_CATALOG[1].items[0])}
+                    >
+                      <div className="qcard-icon cyan"><HardDrive size={16} /></div>
+                      <div className="qcard-body">
+                        <strong>Storage Bucket</strong>
+                        <span>GCS storage bucket</span>
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      className="gemini-quick-card"
+                      onClick={() => handleOpenResourcePrompt(TAAS_UMBRELLA_CATALOG[2].items[0])}
+                    >
+                      <div className="qcard-icon violet"><Server size={16} /></div>
+                      <div className="qcard-body">
+                        <strong>Pub/Sub Topic</strong>
+                        <span>Event streaming topic</span>
+                      </div>
                     </button>
                   </div>
                 </div>
-              )}
+              ) : (
+                <>
+                  <div className="messages-scroll">
+                    {taasMessages.map((msg, idx) => (
+                      <div key={idx} className={`chat-bubble-row ${msg.role}`}>
+                        <div className="bubble-avatar">
+                          {msg.role === 'user' ? <User size={15} /> : <Sparkles size={15} />}
+                        </div>
+                        <div className="bubble-card markdown-body">
+                          <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+                        </div>
+                      </div>
+                    ))}
+                    {(taasLoading || runningPlanOrApply) && (
+                      <div className="chat-bubble-row assistant">
+                        <div className="bubble-avatar"><Sparkles size={15} /></div>
+                        <div className="bubble-card typing-indicator"><ThinkingSpheres /></div>
+                      </div>
+                    )}
+                    <div ref={taasChatEndRef} />
+                  </div>
 
-              <div className="floating-composer-wrap">
-                <div className="floating-composer">
-                  <input
-                    type="text"
-                    placeholder="Ask TaaS to create resources, customize HCL, or search live Terraform docs..."
-                    value={taasInput}
-                    onChange={(e) => setTaasInput(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && handleChatSend()}
-                    disabled={taasLoading || runningPlanOrApply}
-                  />
-                  <button
-                    className="composer-send-btn"
-                    onClick={() => handleChatSend()}
-                    disabled={taasLoading || runningPlanOrApply || !taasInput.trim()}
-                  >
-                    <Send size={16} />
-                  </button>
-                </div>
-              </div>
+                  {pendingPlan && pendingPlan.status === 'AWAITING_APPROVAL' && (
+                    <div className="approval-gate-card">
+                      <div className="approval-header">
+                        <AlertTriangle size={17} />
+                        <div>
+                          <strong>Approval Gate — Plan <code>{pendingPlan.plan_id}</code></strong>
+                          <p>{pendingPlan.plan_summary || 'Review the plan output above before applying to GCP.'}</p>
+                        </div>
+                      </div>
+                      <div className="approval-controls">
+                        <select
+                          value={approvalDecision}
+                          onChange={(e) => setApprovalDecision(e.target.value)}
+                          className="approval-select"
+                          disabled={runningPlanOrApply}
+                        >
+                          <option value="apply">apply — Approve & Provision to GCP</option>
+                          <option value="dont apply">dont apply — Cancel Plan</option>
+                        </select>
+                        <button
+                          className={`approval-confirm-btn ${approvalDecision === 'apply' ? 'approve' : 'cancel'}`}
+                          onClick={handleConfirmPlanDecision}
+                          disabled={runningPlanOrApply}
+                        >
+                          {runningPlanOrApply ? <Loader2 className="spin" size={15} /> : approvalDecision === 'apply' ? <CheckCircle2 size={15} /> : <XCircle size={15} />}
+                          <span>Confirm</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="floating-composer-wrap">
+                    <div className="floating-composer">
+                      <input
+                        type="text"
+                        placeholder="Ask TaaS to create or customize GCP infrastructure..."
+                        value={taasInput}
+                        onChange={(e) => setTaasInput(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && handleChatSend()}
+                        disabled={taasLoading || runningPlanOrApply}
+                      />
+                      <button
+                        className="composer-send-btn"
+                        onClick={() => handleChatSend()}
+                        disabled={taasLoading || runningPlanOrApply || !taasInput.trim()}
+                      >
+                        <Send size={16} />
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
             </section>
 
-            {/* ANTIGRAVITY-STYLE CURSOR DRAG RESIZE SPLITTER */}
+            {/* CURSOR DRAG SPLITTER */}
             {!panelCollapsed && (
               <div
                 className={`antigravity-resize-splitter ${isDraggingPanel ? 'dragging' : ''}`}
@@ -1284,64 +1320,38 @@ export default function StudioApp() {
                   setIsDraggingPanel(true)
                 }}
                 onDoubleClick={() => setPanelWidthPct(54)}
-                title="Drag left or right to resize Pre-Plan panel (Double-click to reset)"
+                title="Drag to resize panel"
               >
                 <div className="splitter-grip-bar" />
               </div>
             )}
 
-            {/* RIGHT PANE: ANTIGRAVITY-STYLE DRAGGABLE & MINIMIZABLE PRE-PLAN WORKBENCH PANEL */}
+            {/* RIGHT PANE: Pre-Plan Code, Active Resources + State Badge */}
             <section
               className={`antigravity-side-panel ${panelCollapsed ? 'size-collapsed' : 'size-custom'} ${isDraggingPanel ? 'is-dragging' : ''}`}
               style={!panelCollapsed ? { width: `${panelWidthPct}%` } : undefined}
             >
               {panelCollapsed ? (
-                /* Slim Dock Rail when Minimized */
                 <div className="collapsed-sidecar-rail">
-                  <button
-                    className="rail-icon-btn"
-                    onClick={() => setPanelCollapsed(false)}
-                    title="Expand Pre-Plan Panel"
-                  >
+                  <button className="rail-icon-btn" onClick={() => setPanelCollapsed(false)} title="Expand Panel">
                     <PanelRightOpen size={17} />
                   </button>
                   <button
                     className={`rail-icon-btn ${taasRightTab === 'editor' ? 'active' : ''}`}
-                    onClick={() => {
-                      setTaasRightTab('editor')
-                      setPanelCollapsed(false)
-                    }}
-                    title="Pre-Plan Code Editor"
+                    onClick={() => { setTaasRightTab('editor'); setPanelCollapsed(false) }}
+                    title="Pre-Plan Code"
                   >
                     <Code2 size={17} />
                   </button>
                   <button
-                    className={`rail-icon-btn ${taasRightTab === 'docs' ? 'active' : ''}`}
-                    onClick={() => {
-                      setTaasRightTab('docs')
-                      setPanelCollapsed(false)
-                    }}
-                    title="Live Terraform Docs"
-                  >
-                    <BookOpen size={17} />
-                  </button>
-                  <button
                     className={`rail-icon-btn ${taasRightTab === 'resources' ? 'active' : ''}`}
-                    onClick={() => {
-                      setTaasRightTab('resources')
-                      setPanelCollapsed(false)
-                      fetchTaasResources()
-                    }}
-                    title="Active Cloud Resources"
+                    onClick={() => { setTaasRightTab('resources'); setPanelCollapsed(false); fetchTaasResources() }}
+                    title="Active Resources"
                   >
                     <Layers size={17} />
-                    {(taasResources.active_count || 0) > 0 && (
-                      <span className="rail-badge">{taasResources.active_count}</span>
-                    )}
                   </button>
                 </div>
               ) : (
-                /* Full Floating Workbench Card */
                 <div className="floating-workbench-card">
                   <div className="workbench-header-bar">
                     <div className="workbench-subtabs">
@@ -1351,13 +1361,6 @@ export default function StudioApp() {
                       >
                         <Code2 size={15} />
                         <span>Pre-Plan Code</span>
-                      </button>
-                      <button
-                        className={`subtab-btn ${taasRightTab === 'docs' ? 'active' : ''}`}
-                        onClick={() => setTaasRightTab('docs')}
-                      >
-                        <BookOpen size={15} />
-                        <span>Live Docs</span>
                       </button>
                       <button
                         className={`subtab-btn ${taasRightTab === 'resources' ? 'active' : ''}`}
@@ -1371,8 +1374,12 @@ export default function StudioApp() {
                       </button>
                     </div>
 
-                    {/* Only Minimize Button (Width is controlled by cursor-dragging the left edge) */}
+                    {/* State File Path Badge + Minimize Button on the Right Panel */}
                     <div className="panel-window-controls">
+                      <div className="workbench-state-pill" title="Authoritative GCS Remote State">
+                        <span className="state-dot" />
+                        <span>State: <code>taas/solar-dialect-264808/gcp</code></span>
+                      </div>
                       <button
                         type="button"
                         className="win-ctrl-btn"
@@ -1384,25 +1391,20 @@ export default function StudioApp() {
                     </div>
                   </div>
 
-                  {/* SUBTAB 1: PRE-PLAN CODE EDITOR */}
                   {taasRightTab === 'editor' && (
                     <div className="editor-pane">
                       <div className="file-tabs-bar">
                         {ARTIFACT_FILE_LIST.map((f) => {
                           const meta = artifactFiles[f.name] || DEFAULT_STARTER_FILES[f.name]
-                          const isCreatedArtifact = meta?.is_artifact
                           return (
                             <button
                               key={f.name}
                               className={`file-tab-pill ${selectedFile === f.name ? 'selected' : ''}`}
                               onClick={() => handleSelectArtifactFile(f.name)}
-                              title={`${f.desc} (${meta?.source_path || ''})`}
                             >
                               <FileCode size={13} />
                               <span>{f.label}</span>
-                              {isCreatedArtifact && (
-                                <span className="resource-dot" title="Pulled from artifacts/gcp/" />
-                              )}
+                              {meta?.is_artifact && <span className="resource-dot" />}
                             </button>
                           )
                         })}
@@ -1418,33 +1420,17 @@ export default function StudioApp() {
                         </div>
 
                         <div className="editor-actions">
-                          <button
-                            className="tool-btn secondary"
-                            onClick={handleLoadStarterTemplate}
-                            title="Reset/Pull template from \terraform_starters"
-                          >
+                          <button className="tool-btn secondary" onClick={handleLoadStarterTemplate}>
                             <RotateCcw size={13} /> Starter
                           </button>
-                          <button
-                            className="tool-btn secondary"
-                            onClick={() => fetchTaasArtifacts(selectedFile)}
-                            title="Sync from Cloud Shell disk"
-                          >
+                          <button className="tool-btn secondary" onClick={() => fetchTaasArtifacts(selectedFile)}>
                             <RefreshCw size={13} /> Sync
                           </button>
-                          <button
-                            className="tool-btn primary"
-                            onClick={handleSaveArtifactCode}
-                            disabled={savingFile}
-                          >
+                          <button className="tool-btn primary" onClick={handleSaveArtifactCode} disabled={savingFile}>
                             {savingFile ? <Loader2 className="spin" size={13} /> : <Save size={13} />}
                             <span>Save to Artifacts</span>
                           </button>
-                          <button
-                            className="tool-btn plan-btn"
-                            onClick={handleRunTerraformPlan}
-                            disabled={runningPlanOrApply}
-                          >
+                          <button className="tool-btn plan-btn" onClick={handleRunTerraformPlan} disabled={runningPlanOrApply}>
                             {runningPlanOrApply ? <Loader2 className="spin" size={13} /> : <Play size={13} />}
                             <span>Plan</span>
                           </button>
@@ -1465,108 +1451,21 @@ export default function StudioApp() {
                     </div>
                   )}
 
-                  {/* SUBTAB 2: LIVE TERRAFORM DOCS */}
-                  {taasRightTab === 'docs' && (
-                    <div className="docs-pane">
-                      <form onSubmit={handleLookupDocs} className="docs-search-bar">
-                        <select
-                          value={docResourceType}
-                          onChange={(e) => setDocResourceType(e.target.value)}
-                          className="doc-select"
-                        >
-                          <option value="google_storage_bucket">google_storage_bucket</option>
-                          <option value="google_bigquery_dataset">google_bigquery_dataset</option>
-                          <option value="google_bigquery_table">google_bigquery_table</option>
-                          <option value="google_pubsub_topic">google_pubsub_topic</option>
-                          <option value="google_pubsub_subscription">google_pubsub_subscription</option>
-                        </select>
-                        <input
-                          type="text"
-                          placeholder="Search attribute (labels, lifecycle_rule, retention_policy, schema)..."
-                          value={docQuery}
-                          onChange={(e) => setDocQuery(e.target.value)}
-                        />
-                        <button type="submit" className="tool-btn primary" disabled={loadingDocs}>
-                          {loadingDocs ? <Loader2 className="spin" size={14} /> : <Search size={14} />}
-                          <span>Search</span>
-                        </button>
-                      </form>
-
-                      <div className="docs-results-scroll">
-                        {!docResult ? (
-                          <div className="docs-empty-state">
-                            <BookOpen size={28} />
-                            <h4>Live Terraform Google Provider Docs</h4>
-                            <p>
-                              Fetches official HashiCorp documentation in real-time (zero disk cache).
-                              Search for <code>labels</code>, <code>lifecycle_rule</code>, <code>retention_policy</code>, or <code>schema</code>.
-                            </p>
-                          </div>
-                        ) : docResult.status === 'ERROR' ? (
-                          <div className="login-error">{docResult.message}</div>
-                        ) : (
-                          <div className="docs-result-content">
-                            <div className="docs-meta-banner">
-                              <span><code>{docResult.resource_type}</code></span>
-                              <a href={docResult.registry_url} target="_blank" rel="noreferrer">
-                                Terraform Registry ↗
-                              </a>
-                            </div>
-
-                            {docResult.suggested_hcl_snippet && (
-                              <div className="doc-card">
-                                <div className="doc-card-header">
-                                  <h5>Suggested HCL Snippet</h5>
-                                  <button
-                                    className="tool-btn primary"
-                                    onClick={() => handleInsertSnippetToEditor(docResult.suggested_hcl_snippet)}
-                                  >
-                                    <PlusCircle size={13} /> Insert into Editor
-                                  </button>
-                                </div>
-                                <pre className="code-block">{docResult.suggested_hcl_snippet}</pre>
-                              </div>
-                            )}
-
-                            {docResult.matched_argument_documentation?.length > 0 && (
-                              <div className="doc-card">
-                                <h5>Argument Reference</h5>
-                                {docResult.matched_argument_documentation.map((line, i) => (
-                                  <div key={i} className="arg-doc-item markdown-body">
-                                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{line}</ReactMarkdown>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* SUBTAB 3: ENHANCED, BEAUTIFUL ACTIVE RESOURCES SHOWCASE */}
                   {taasRightTab === 'resources' && (
                     <div className="resources-pane">
                       <div className="resources-hero-banner">
                         <div className="hero-left">
-                          <div className="hero-icon-circle">
-                            <ShieldCheck size={20} />
-                          </div>
+                          <div className="hero-icon-circle"><ShieldCheck size={20} /></div>
                           <div>
                             <h4>Cloud Infrastructure Inventory</h4>
                             <p>Authoritative GCS State: <code>taas/solar-dialect-264808/gcp</code></p>
                           </div>
                         </div>
-                        <button
-                          className="tool-btn secondary"
-                          onClick={fetchTaasResources}
-                          disabled={loadingResources}
-                        >
+                        <button className="tool-btn secondary" onClick={fetchTaasResources} disabled={loadingResources}>
                           <RefreshCw className={loadingResources ? 'spin' : ''} size={13} /> Sync State
                         </button>
                       </div>
 
-                      {/* 3 KPI Summary Cards */}
                       <div className="resources-summary-grid">
                         <div className="res-metric-card">
                           <div className="metric-icon active-bg"><CheckCircle2 size={17} /></div>
@@ -1591,32 +1490,12 @@ export default function StudioApp() {
                         </div>
                       </div>
 
-                      {/* Filter & Search Bar */}
                       <div className="resources-filter-bar">
                         <div className="filter-pills-group">
-                          <button
-                            type="button"
-                            className={`filter-pill-btn ${resourceFilter === 'all' ? 'active' : ''}`}
-                            onClick={() => setResourceFilter('all')}
-                          >
-                            All
-                          </button>
-                          <button
-                            type="button"
-                            className={`filter-pill-btn ${resourceFilter === 'active' ? 'active' : ''}`}
-                            onClick={() => setResourceFilter('active')}
-                          >
-                            Active ({taasResources.active_count || 0})
-                          </button>
-                          <button
-                            type="button"
-                            className={`filter-pill-btn ${resourceFilter === 'archived' ? 'active' : ''}`}
-                            onClick={() => setResourceFilter('archived')}
-                          >
-                            Deactivated ({archivedTotalCount})
-                          </button>
+                          <button type="button" className={`filter-pill-btn ${resourceFilter === 'all' ? 'active' : ''}`} onClick={() => setResourceFilter('all')}>All</button>
+                          <button type="button" className={`filter-pill-btn ${resourceFilter === 'active' ? 'active' : ''}`} onClick={() => setResourceFilter('active')}>Active ({taasResources.active_count || 0})</button>
+                          <button type="button" className={`filter-pill-btn ${resourceFilter === 'archived' ? 'active' : ''}`} onClick={() => setResourceFilter('archived')}>Deactivated ({archivedTotalCount})</button>
                         </div>
-
                         <div className="resource-search-input">
                           <Search size={13} />
                           <input
@@ -1628,22 +1507,14 @@ export default function StudioApp() {
                         </div>
                       </div>
 
-                      {/* Resource Category Cards */}
                       <div className="resource-groups-scroll">
                         {resourceFilter !== 'archived' &&
                           Object.entries(taasResources.active || {}).map(([category, items]) => {
-                            const meta = CATEGORY_METADATA[category] || {
-                              label: category.replace('_', ' ').toUpperCase(),
-                              file: `${category}.tf`,
-                              icon: Cloud
-                            }
+                            const meta = CATEGORY_METADATA[category] || { label: category.toUpperCase(), file: `${category}.tf`, icon: Cloud }
                             const IconComp = meta.icon
-                            const filteredItems = (items || []).filter(item =>
-                              !resourceSearch.trim() ||
-                              item.cloud_name?.toLowerCase().includes(resourceSearch.toLowerCase()) ||
-                              item.address?.toLowerCase().includes(resourceSearch.toLowerCase())
+                            const filteredItems = (items || []).filter((item) =>
+                              !resourceSearch.trim() || item.cloud_name?.toLowerCase().includes(resourceSearch.toLowerCase())
                             )
-
                             return (
                               <div key={category} className="resource-category-card">
                                 <div className="cat-header">
@@ -1651,11 +1522,8 @@ export default function StudioApp() {
                                     <span className="cat-service-badge"><IconComp size={15} /></span>
                                     <strong>{meta.label}</strong>
                                   </div>
-                                  <span className={`count-badge ${filteredItems.length === 0 ? 'zero' : ''}`}>
-                                    {filteredItems.length} active
-                                  </span>
+                                  <span className={`count-badge ${filteredItems.length === 0 ? 'zero' : ''}`}>{filteredItems.length} active</span>
                                 </div>
-
                                 {filteredItems.length === 0 ? (
                                   <p className="empty-text">No active resources deployed in <code>{meta.file}</code></p>
                                 ) : (
@@ -1664,14 +1532,11 @@ export default function StudioApp() {
                                       <div key={i} className="resource-row-item">
                                         <div className="res-item-left">
                                           <div className="res-top-line">
-                                            <span className="live-status-dot" title="Verified Active in Google Cloud" />
+                                            <span className="live-status-dot" />
                                             <span className="res-cloud-title">{item.cloud_name}</span>
                                             <code className="res-tf-chip">{meta.file}</code>
                                           </div>
-                                          <span className="res-meta-line">
-                                            Project: <strong>{item.project_id || 'solar-dialect-264808'}</strong>
-                                            {item.dataset_id ? ` • Dataset: ${item.dataset_id}` : ''}
-                                          </span>
+                                          <span className="res-meta-line">Project: <strong>{item.project_id || 'solar-dialect-264808'}</strong></span>
                                         </div>
                                         <button
                                           className="deactivate-btn"
@@ -1690,16 +1555,11 @@ export default function StudioApp() {
 
                         {resourceFilter !== 'active' &&
                           Object.entries(taasResources.deactivated || {}).map(([category, items]) => {
-                            const filteredArchived = (items || []).filter(item =>
-                              !resourceSearch.trim() ||
-                              item.cloud_name?.toLowerCase().includes(resourceSearch.toLowerCase())
+                            const filteredArchived = (items || []).filter((item) =>
+                              !resourceSearch.trim() || item.cloud_name?.toLowerCase().includes(resourceSearch.toLowerCase())
                             )
                             if (filteredArchived.length === 0) return null
-                            const meta = CATEGORY_METADATA[category] || {
-                              label: category.toUpperCase(),
-                              file: `${category}.tf`,
-                              icon: Layers
-                            }
+                            const meta = CATEGORY_METADATA[category] || { label: category.toUpperCase(), file: `${category}.tf`, icon: Layers }
                             const IconComp = meta.icon
                             return (
                               <div key={`deact-${category}`} className="resource-category-card">
@@ -1718,9 +1578,6 @@ export default function StudioApp() {
                                           <span className="res-cloud-title">{item.cloud_name}</span>
                                           <code className="res-tf-chip">Commented in {meta.file}</code>
                                         </div>
-                                        <span className="res-meta-line">
-                                          Preserved in <code>artifacts/gcp/{meta.file}</code> for 1-click recreation
-                                        </span>
                                       </div>
                                       <button
                                         className="reactivate-btn"
@@ -1744,41 +1601,65 @@ export default function StudioApp() {
           </div>
         ) : (
           <div className="chat-workspace">
-            <div className="messages-scroll">
-              {taasMessages.map((m, i) => (
-                <div key={i} className={`chat-bubble-row ${m.role}`}>
-                  <div className="bubble-avatar">{m.role === 'user' ? <User size={15} /> : <Activity size={15} />}</div>
-                  <div className="bubble-card markdown-body"><ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown></div>
+            {isChatEmpty ? (
+              <div className="gemini-center-stage">
+                <div className="gemini-hero-chips">
+                  <span className="hero-chip"><Activity size={13} /> Dataset: <strong>servicenow_itsm.incidents</strong></span>
+                  <span className="hero-chip"><Database size={13} /> Project: <strong>solar-dialect-264808</strong></span>
                 </div>
-              ))}
-              {taasLoading && (
-                <div className="chat-bubble-row assistant">
-                  <div className="bubble-avatar"><Activity size={15} /></div>
-                  <div className="bubble-card typing-indicator">
-                    <div className="floating-spheres" aria-label="Thinking">
-                      <span className="sphere" />
-                      <span className="sphere" />
-                      <span className="sphere" />
-                    </div>
+                <h1 className="gemini-hero-title">
+                  What operational insights <span className="gemini-gradient-text">do you need?</span>
+                </h1>
+                <p className="gemini-hero-subtitle">Analyze ServiceNow incidents, MTTR trends, and P1/P2 backlog on BigQuery.</p>
+                <div className="gemini-center-composer-wrap">
+                  <div className="floating-composer gemini-elevated-composer">
+                    <Activity size={18} className="composer-lead-icon" />
+                    <input
+                      type="text"
+                      placeholder="Ask Agentic DataOps about ServiceNow incidents, MTTR, or backlog aging..."
+                      value={taasInput}
+                      onChange={(e) => setTaasInput(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && handleChatSend()}
+                    />
+                    <button className="composer-send-btn" onClick={() => handleChatSend()} disabled={!taasInput.trim()}>
+                      <Send size={16} />
+                    </button>
                   </div>
                 </div>
-              )}
-              <div ref={taasChatEndRef} />
-            </div>
-            <div className="floating-composer-wrap">
-              <div className="floating-composer">
-                <input
-                  type="text"
-                  placeholder="Ask Agentic DataOps about ServiceNow incidents, MTTR, or backlog aging..."
-                  value={taasInput}
-                  onChange={(e) => setTaasInput(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleChatSend()}
-                />
-                <button className="composer-send-btn" onClick={() => handleChatSend()}>
-                  <Send size={16} />
-                </button>
               </div>
-            </div>
+            ) : (
+              <>
+                <div className="messages-scroll">
+                  {taasMessages.map((m, i) => (
+                    <div key={i} className={`chat-bubble-row ${m.role}`}>
+                      <div className="bubble-avatar">{m.role === 'user' ? <User size={15} /> : <Activity size={15} />}</div>
+                      <div className="bubble-card markdown-body"><ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown></div>
+                    </div>
+                  ))}
+                  {taasLoading && (
+                    <div className="chat-bubble-row assistant">
+                      <div className="bubble-avatar"><Activity size={15} /></div>
+                      <div className="bubble-card typing-indicator"><ThinkingSpheres /></div>
+                    </div>
+                  )}
+                  <div ref={taasChatEndRef} />
+                </div>
+                <div className="floating-composer-wrap">
+                  <div className="floating-composer">
+                    <input
+                      type="text"
+                      placeholder="Ask Agentic DataOps about ServiceNow incidents, MTTR, or backlog aging..."
+                      value={taasInput}
+                      onChange={(e) => setTaasInput(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && handleChatSend()}
+                    />
+                    <button className="composer-send-btn" onClick={() => handleChatSend()}>
+                      <Send size={16} />
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         )}
       </main>
