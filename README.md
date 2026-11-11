@@ -129,7 +129,7 @@ The **TaaS Agent** (`taas_agent`) is a declarative infrastructure assistant buil
 
 ---
 
-### 5.2 Code Explanation: Approved Terraform Starters (`terraform_starters/`)
+### 5.2 Approved Terraform Starters (`terraform_starters/`)
 
 All infrastructure originates from reviewed starter templates in `terraform_starters/`.
 
@@ -173,7 +173,7 @@ resource "google_storage_bucket" "requested" {
 
 ---
 
-### 5.3 Code Explanation: ADK Agent & Confirmation Gate (`taas_agent/agent.py`)
+### 5.3 ADK Agent & Confirmation Gate (`taas_agent/agent.py`)
 
 In `taas_agent/agent.py`, the agent loads the `terraform-provisioning` skill from `taas_agent/skills/terraform-provisioning/SKILL.md` and wraps `apply_resource` inside an ADK `FunctionTool` with `require_confirmation=True`. This enforces a mandatory human approval gate before any cloud mutation occurs:
 
@@ -238,7 +238,7 @@ root_agent = Agent(
 
 ---
 
-### 5.4 Code Explanation: Deterministic Lifecycle Tools (`taas_agent/tools/tools.py`)
+### 5.4 Deterministic Lifecycle Tools (`taas_agent/tools/tools.py`)
 
 #### 1. Resource Registry (`SUPPORTED_RESOURCES`)
 Maps each normalized resource type to its starter directory, target `.tf` file in `artifacts/gcp/`, and HCL resource type:
@@ -359,7 +359,7 @@ It uses a hierarchical **Multi-Agent Supervisor Pattern** where the lead `Servic
 
 ---
 
-### 6.2 Code Explanation: Multi-Agent Hierarchy (`dataops_agent/agent.py`)
+### 6.2 Multi-Agent Hierarchy (`dataops_agent/agent.py`)
 
 `dataops_agent/agent.py` defines each specialist agent with its dedicated toolset and binds them under `ServiceNowMasterAgent`:
 
@@ -420,7 +420,7 @@ dataops_root_agent = Agent(
 
 ---
 
-### 6.3 Code Explanation: Parameterized BigQuery Analytics (`dataops_agent/tools.py`)
+### 6.3 Parameterized BigQuery Analytics (`dataops_agent/tools.py`)
 
 To eliminate SQL injection risks and date-math hallucinations, `dataops_agent/tools.py` constructs parameterized `bigquery.ScalarQueryParameter` and `bigquery.ArrayQueryParameter` bindings for every query:
 
@@ -497,7 +497,7 @@ def calculate_mttr_by_group(
 
 ---
 
-### 7.2 Code Explanation: Document Classifier & Hybrid Bench Lookup (`enterprise_gpt/service.py`)
+### 7.2 Document Classifier & Hybrid Bench Lookup (`enterprise_gpt/service.py`)
 
 #### 1. Heuristic + NLP Document Classifier (`extract_features` & `classify_document`)
 Automatically distinguishes candidate resumes from corporate policy documents during upload:
