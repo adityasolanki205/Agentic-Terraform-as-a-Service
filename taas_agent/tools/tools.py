@@ -331,7 +331,7 @@ def _build_resource_hcl(
         tf_name = re.sub(r"[^A-Za-z0-9_]", "_", bucket_name)
         tf_address = f"google_storage_bucket.{tf_name}"
 
-        versioning_enabled = config.get("versioning", True)
+        versioning_enabled = config.get("versioning", False)
         if isinstance(versioning_enabled, str):
             versioning_enabled = versioning_enabled.lower() not in ("false", "0", "no", "disabled")
         versioning_str = "true" if versioning_enabled else "false"
@@ -351,6 +351,7 @@ def _build_resource_hcl(
                 .replace("var.location", f'"{clean_location}"')
                 .replace("{{location}}", clean_location)
                 .replace('lookup(var.resource_config, "versioning", true)', versioning_str)
+                .replace('lookup(var.resource_config, "versioning", false)', versioning_str)
                 .strip()
             )
         else:
@@ -972,6 +973,201 @@ def generate_resource_files(
 
 
 
+def sync_terraform_state(
+    project_id: str | None = None,
+    preserve_request_id: str | None = None,
+) -> dict:
+    """Synchronize local artifacts/gcp/*.tf files and request records with the authoritative GCS remote state."""
+    clean_project = (
+        project_id
+        or os.getenv("GOOGLE_CLOUD_PROJECT")
+        or os.getenv("PROJECT_ID")
+        or "solar-dialect-264808"
+    ).strip()
+    default_loc = os.getenv("TAAS_DEFAULT_REGION", "asia-south2").strip()
+    if default_loc.lower() == "global":
+        default_loc = "asia-south2"
+    state_bucket = os.getenv("TAAS_STATE_BUCKET", "terraform-implementation").strip()
+
+    _ensure_common_artifacts(GCP_ARTIFACTS_DIR, clean_project, default_loc, state_bucket)
+
+    preserve_addr = None
+    preserve_action = None
+    if preserve_request_id:
+        try:
+            p_rec = _load_record(preserve_request_id)
+            preserve_addr = p_rec.get("expected_address")
+            preserve_action = p_rec.get("action")
+        except Exception:
+            pass
+
+    state_data = None
+    prefix = f"taas/{clean_project}/gcp"
+    try:
+        from google.cloud import storage
+
+        blob = storage.Client(project=clean_project).bucket(state_bucket).blob(f"{prefix}/default.tfstate")
+        if blob.exists():
+            state_data = json.loads(blob.download_as_text(encoding="utf-8"))
+    except Exception as exc:
+        print(f"[TaaS][Sync] Direct GCS state read fallback: {exc}")
+
+    if state_data is None:
+        pull_res = _run_terraform(["state", "pull"], GCP_ARTIFACTS_DIR, separate_stderr=True)
+        raw_pull = (pull_res.get("stdout") or "").strip()
+        if pull_res.get("returncode") == 0 and raw_pull.startswith("{"):
+            try:
+                state_data = json.loads(raw_pull)
+            except Exception:
+                state_data = None
+
+    if not state_data or not isinstance(state_data, dict):
+        return {
+            "status": "NO_REMOTE_STATE",
+            "synced_count": 0,
+            "message": "No remote state file found or state is empty.",
+        }
+
+    hcl_to_norm = {
+        "google_storage_bucket": "gcp.storage_bucket",
+        "google_bigquery_dataset": "gcp.bigquery_dataset",
+        "google_bigquery_table": "gcp.bigquery_table",
+        "google_pubsub_topic": "gcp.pubsub_topic",
+        "google_pubsub_subscription": "gcp.pubsub_subscription",
+    }
+
+    state_addresses = set()
+    synced_addresses = []
+
+    for res in state_data.get("resources", []):
+        if res.get("mode") and res.get("mode") != "managed":
+            continue
+        hcl_type = res.get("type", "")
+        tf_name = res.get("name", "")
+        if hcl_type not in hcl_to_norm or not tf_name:
+            continue
+
+        norm_type = hcl_to_norm[hcl_type]
+        spec = SUPPORTED_RESOURCES[norm_type]
+        tf_address = f"{hcl_type}.{tf_name}"
+        state_addresses.add(tf_address)
+
+        instances = res.get("instances") or []
+        attrs = (instances[0].get("attributes") if instances else None) or {}
+        res_project = (attrs.get("project") or clean_project).strip()
+        res_loc = (attrs.get("location") or default_loc).strip()
+
+        if norm_type == "gcp.storage_bucket":
+            res_name = attrs.get("name") or tf_name
+            ver_list = attrs.get("versioning") or []
+            ver_enabled = bool(ver_list[0].get("enabled", False)) if isinstance(ver_list, list) and ver_list else False
+            cfg = {"versioning": ver_enabled}
+        elif norm_type == "gcp.bigquery_dataset":
+            res_name = attrs.get("dataset_id") or tf_name
+            cfg = {}
+        elif norm_type == "gcp.bigquery_table":
+            res_name = attrs.get("table_id") or tf_name
+            cfg = {"dataset_id": attrs.get("dataset_id") or ""}
+            if attrs.get("schema"):
+                cfg["schema"] = attrs.get("schema")
+        elif norm_type == "gcp.pubsub_topic":
+            res_name = attrs.get("name") or tf_name
+            res_loc = "global"
+            cfg = {}
+        elif norm_type == "gcp.pubsub_subscription":
+            res_name = attrs.get("name") or tf_name
+            res_loc = "global"
+            cfg = {"topic": str(attrs.get("topic") or "").split("/")[-1]}
+        else:
+            continue
+
+        # If this resource is currently being deactivated in the active request, keep it commented out
+        if preserve_action == "DEACTIVATE" and tf_address == preserve_addr:
+            continue
+
+        tf_file = GCP_ARTIFACTS_DIR / spec["primary_tf"]
+        file_text = tf_file.read_text(encoding="utf-8") if tf_file.is_file() else ""
+
+        # Comment out raw starter placeholder block if present in artifacts/gcp/
+        if f'resource "{hcl_type}" "requested"' in file_text:
+            _toggle_resource_block_in_file(tf_file, f"{hcl_type}.requested", comment_out=True)
+            file_text = tf_file.read_text(encoding="utf-8")
+
+        active_pattern = re.compile(
+            rf'^\s*resource\s+"{re.escape(hcl_type)}"\s+"{re.escape(tf_name)}"',
+            re.MULTILINE,
+        )
+        if not active_pattern.search(file_text):
+            # Try uncommenting if it was commented out from an unapplied deactivation
+            uncommented = _toggle_resource_block_in_file(tf_file, tf_address, comment_out=False)
+            file_text = tf_file.read_text(encoding="utf-8") if tf_file.is_file() else ""
+            if not uncommented or not active_pattern.search(file_text):
+                hcl_block, _, _ = _build_resource_hcl(
+                    resource_type=norm_type,
+                    resource_name=res_name,
+                    project_id=res_project,
+                    location=res_loc,
+                    config=cfg,
+                )
+                _upsert_resource_block(tf_file, tf_address, hcl_block)
+
+        synced_addresses.append(tf_address)
+
+        # Ensure .taas/requests has an active READY record for this state resource
+        existing_recs = _find_records(
+            project_id=res_project,
+            resource_name=res_name,
+            resource_type=norm_type,
+        )
+        has_active_rec = any(r.get("status") in ("READY", "APPLIED") for r in existing_recs)
+        if not has_active_rec:
+            sync_id = str(uuid4())
+            _save_record(
+                {
+                    "request_id": sync_id,
+                    "action": "CREATE",
+                    "resource_type": norm_type,
+                    "resource_name": res_name,
+                    "project_id": res_project,
+                    "location": res_loc,
+                    "resource_config": cfg,
+                    "artifact_directory": str(GCP_ARTIFACTS_DIR.resolve()),
+                    "primary_tf_file": str(tf_file.resolve()),
+                    "expected_address": tf_address,
+                    "tf_resource_name": tf_name,
+                    "status": "READY",
+                    "status_message": "Synced from authoritative GCS Terraform state.",
+                    "created_at": _now(),
+                    "updated_at": _now(),
+                }
+            )
+
+    # Also comment out any stale/unapplied active resource blocks in artifacts/gcp/*.tf
+    # that are NOT in remote state (except preserve_addr when creating/recreating)
+    for spec in SUPPORTED_RESOURCES.values():
+        tf_file = GCP_ARTIFACTS_DIR / spec["primary_tf"]
+        if not tf_file.is_file():
+            continue
+        text = tf_file.read_text(encoding="utf-8")
+        for match in list(
+            re.finditer(r'^\s*resource\s+"([a-zA-Z0-9_]+)"\s+"([a-zA-Z0-9_]+)"', text, re.MULTILINE)
+        ):
+            r_type, r_name = match.group(1), match.group(2)
+            addr = f"{r_type}.{r_name}"
+            if addr not in state_addresses:
+                if preserve_addr and addr == preserve_addr and preserve_action in ("CREATE", "RECREATE"):
+                    continue
+                _toggle_resource_block_in_file(tf_file, addr, comment_out=True)
+
+    _run_terraform(["fmt", "-recursive"], GCP_ARTIFACTS_DIR)
+    return {
+        "status": "SUCCESS",
+        "synced_count": len(synced_addresses),
+        "synced_addresses": synced_addresses,
+        "message": f"Synced {len(synced_addresses)} resource(s) from remote GCS Terraform state.",
+    }
+
+
 def plan_resource(request_id: str) -> dict:
     """Format, initialize, validate, and plan a generated resource request.
 
@@ -1007,6 +1203,12 @@ def plan_resource(request_id: str) -> dict:
     print(f"[TaaS] Resource: {record.get('resource_type')} '{record.get('resource_name')}' (action: {record.get('action')})")
     print(f"[TaaS] Single shared working directory: {working_directory}")
     print(f"[TaaS] Authoritative single remote state: {state_uri}")
+
+    # 0. Sync artifacts/gcp/*.tf with remote GCS state so existing state resources are never missing
+    try:
+        sync_terraform_state(project_id=clean_project, preserve_request_id=request_id)
+    except Exception as sync_err:
+        print(f"[TaaS][Warn] Pre-plan state sync warning: {sync_err}")
 
     # 1. Format & Init
     init_steps = [
@@ -1047,11 +1249,28 @@ def plan_resource(request_id: str) -> dict:
             "plan",
             "-input=false",
             "-no-color",
+            "-parallelism=2",
             "-lock-timeout=5m",
             "-out=terraform.tfplan",
         ],
         working_directory,
     )
+    if result["returncode"] != 0 and any(
+        err_tok in (result.get("output") or "").lower()
+        for err_tok in ("connection refused", "dial tcp", "reset by peer", "timeout")
+    ):
+        print("[TaaS][Plan] Transient network error during state refresh; retrying plan with -refresh=false...")
+        result = _run_terraform(
+            [
+                "plan",
+                "-refresh=false",
+                "-input=false",
+                "-no-color",
+                "-lock-timeout=5m",
+                "-out=terraform.tfplan",
+            ],
+            working_directory,
+        )
     if result["returncode"] != 0:
         _set_status(record, "PLAN_FAILED", "Terraform plan failed.")
         return {"status": "ERROR", "step": "plan", "message": result["output"][-16000:]}

@@ -154,7 +154,7 @@ provider "google" {
 ```
 
 #### `terraform_starters/gcp/storage_bucket/bucket.tf`
-Starter template for Google Cloud Storage buckets with uniform bucket-level access and object versioning enabled by default:
+Starter template for Google Cloud Storage buckets with uniform bucket-level access and object versioning disabled (`false`) by default:
 
 ```hcl
 # Google Cloud Storage bucket resource template.
@@ -166,7 +166,7 @@ resource "google_storage_bucket" "requested" {
   uniform_bucket_level_access = true
 
   versioning {
-    enabled = lookup(var.resource_config, "versioning", true)
+    enabled = lookup(var.resource_config, "versioning", false)
   }
 }
 ```

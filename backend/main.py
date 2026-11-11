@@ -51,6 +51,7 @@ from taas_agent.tools.tools import (
     plan_recreate_resource,
     plan_resource,
     read_artifact_code,
+    sync_terraform_state,
     update_artifact_code,
     verify_resource,
 )
@@ -281,9 +282,13 @@ def _get_latest_request_info() -> dict:
 
 def _ensure_request_record_for_file(file_name: str) -> Optional[str]:
     """If a user edited a .tf file directly in the editor and clicked Run Plan,
-    ensure there is a valid request record in `.taas/requests` for the resource in that file."""
+    ensure there is a valid request record in `.taas/requests` for the target resource in that file."""
     info = _get_latest_request_info()
-    if info.get("latest_request_id"):
+    if (
+        info.get("latest_request_id")
+        and info.get("latest_status") == "ARTIFACTS_READY"
+        and info.get("active_file") == file_name
+    ):
         return info["latest_request_id"]
 
     file_to_rtype = {
@@ -295,29 +300,82 @@ def _ensure_request_record_for_file(file_name: str) -> Optional[str]:
     }
     rtype = file_to_rtype.get(file_name)
     if not rtype:
-        return None
+        return info.get("latest_request_id")
 
     tf_path = GCP_ARTIFACTS_DIR / file_name
     if not tf_path.is_file():
-        return None
+        return info.get("latest_request_id")
 
     text = tf_path.read_text(encoding="utf-8")
-    matches = list(re.finditer(r'^\s*resource\s+"([a-zA-Z0-9_]+)"\s+"([a-zA-Z0-9_]+)"', text, re.MULTILINE))
-    if not matches:
-        return None
-
-    last_match = matches[-1]
-    hcl_type, tf_name = last_match.group(1), last_match.group(2)
-    expected_address = f"{hcl_type}.{tf_name}"
-
-    # Extract cloud name from block if possible
-    name_match = re.search(r'(?:name|dataset_id|table_id)\s*=\s*"([^"]+)"', text[last_match.start():])
-    cloud_name = name_match.group(1) if name_match else tf_name
-
     project_id = os.getenv("GOOGLE_CLOUD_PROJECT", "solar-dialect-264808").strip()
     location = os.getenv("TAAS_DEFAULT_REGION", "asia-south2").strip()
-    request_id = str(uuid4())
 
+    # 1. Check if the user commented out an active resource block in this file (e.g. via Ctrl + /)
+    active_list = list_taas_resources(project_id=project_id, include_deactivated=False).get("resources", [])
+    active_names_in_cat = {
+        r.get("resource_name"): r for r in active_list if r.get("resource_type") == rtype
+    }
+    commented_matches = list(
+        re.finditer(r'^\s*#\s*resource\s+"([a-zA-Z0-9_]+)"\s+"([a-zA-Z0-9_]+)"', text, re.MULTILINE)
+    )
+    for cm in reversed(commented_matches):
+        c_hcl_type, c_tf_name = cm.group(1), cm.group(2)
+        if c_tf_name == "requested":
+            continue
+        # Check if this commented-out resource is still marked active in state/records
+        matched_res_name = None
+        for r_name in active_names_in_cat:
+            if r_name == c_tf_name or re.sub(r"[^A-Za-z0-9_]", "_", r_name) == c_tf_name:
+                matched_res_name = r_name
+                break
+        if matched_res_name:
+            req_id = str(uuid4())
+            expected_address = f"{c_hcl_type}.{c_tf_name}"
+            record = {
+                "request_id": req_id,
+                "action": "DEACTIVATE",
+                "resource_type": rtype,
+                "resource_name": matched_res_name,
+                "project_id": project_id,
+                "location": location,
+                "resource_config": {},
+                "artifact_directory": str(GCP_ARTIFACTS_DIR.resolve()),
+                "primary_tf_file": str(tf_path.resolve()),
+                "expected_address": expected_address,
+                "tf_resource_name": c_tf_name,
+                "status": "ARTIFACTS_READY",
+                "status_message": f"Deactivation block '{expected_address}' ready for planning in {file_name}.",
+                "created_at": _now(),
+                "updated_at": _now(),
+            }
+            _save_record(record)
+            return req_id
+
+    # 2. Otherwise find the target active resource block in the file (preferring newly added ones)
+    matches = [
+        m
+        for m in re.finditer(r'^\s*resource\s+"([a-zA-Z0-9_]+)"\s+"([a-zA-Z0-9_]+)"', text, re.MULTILINE)
+        if m.group(2) != "requested"
+    ]
+    if not matches:
+        return info.get("latest_request_id")
+
+    target_match = matches[-1]
+    for m in reversed(matches):
+        cand_name = m.group(2)
+        if cand_name not in active_names_in_cat and all(
+            re.sub(r"[^A-Za-z0-9_]", "_", k) != cand_name for k in active_names_in_cat
+        ):
+            target_match = m
+            break
+
+    hcl_type, tf_name = target_match.group(1), target_match.group(2)
+    expected_address = f"{hcl_type}.{tf_name}"
+
+    name_match = re.search(r'(?:name|dataset_id|table_id)\s*=\s*"([^"]+)"', text[target_match.start() :])
+    cloud_name = name_match.group(1) if name_match else tf_name
+
+    request_id = str(uuid4())
     record = {
         "request_id": request_id,
         "action": "CREATE",
@@ -415,13 +473,35 @@ def taas_chat(req: TaaSChatRequest):
 
 
 @app.get("/api/taas/artifacts")
-def get_artifacts(file_name: Optional[str] = None):
+def get_artifacts(file_name: Optional[str] = None, sync: bool = False):
+    sync_info = {}
+    if sync:
+        try:
+            sync_info = sync_terraform_state()
+        except Exception as exc:
+            sync_info = {"status": "SYNC_WARNING", "message": str(exc)}
     res = read_artifact_code(file_name=file_name)
     req_info = _get_latest_request_info()
     return {
         **res,
         "files": res.get("file_details", {}),
         "raw_files": res.get("files", {}),
+        "sync_result": sync_info,
+        **req_info,
+    }
+
+
+@app.post("/api/taas/sync")
+@app.get("/api/taas/sync")
+def trigger_state_sync(project_id: Optional[str] = None):
+    sync_res = sync_terraform_state(project_id=project_id)
+    res = read_artifact_code()
+    req_info = _get_latest_request_info()
+    return {
+        **res,
+        "files": res.get("file_details", {}),
+        "raw_files": res.get("files", {}),
+        "sync_result": sync_res,
         **req_info,
     }
 
@@ -514,7 +594,12 @@ async def trigger_apply(req: ApprovePlanRequest):
 
 
 @app.get("/api/taas/resources")
-def get_resources(project_id: Optional[str] = None):
+def get_resources(project_id: Optional[str] = None, sync: bool = False):
+    if sync:
+        try:
+            sync_terraform_state(project_id=project_id)
+        except Exception as exc:
+            print(f"[TaaS][Resources Sync Warn] {exc}")
     raw = list_taas_resources(project_id=project_id, include_deactivated=True)
     items = raw.get("resources", [])
     active_by_cat: dict[str, list] = {
