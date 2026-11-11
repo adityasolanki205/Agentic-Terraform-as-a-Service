@@ -1,4 +1,5 @@
-# Agentic Terraform-as-a-Service (TaaS) & Unified Enterprise AI Platform
+# Agentic Terraform-as-a-Service (TaaS) & Unified Enterprise AI Platform 
+# WORK IN PROGRESS
 
 Welcome to the repository for **Agentic Terraform-as-a-Service (TaaS) & Unified Enterprise AI Platform**! Hope you will learn a lot about building production-grade, governance-first **Agentic Cloud Infrastructure**, **Agentic DataOps**, and **Enterprise RAG + Text-to-SQL** systems on **Google Cloud Platform (GCP)** using **Google Agent Development Kit (ADK)**, **Vertex AI Gemini**, **Terraform**, **BigQuery**, **ChromaDB**, and **FastAPI**.
 
