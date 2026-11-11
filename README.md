@@ -1,5 +1,4 @@
-# Agentic Terraform-as-a-Service (TaaS) & Unified Enterprise AI Platform 
-# WORK IN PROGRESS
+# Agentic Terraform-as-a-Service (TaaS) & Unified Enterprise AI Platform (WORK IN PROGRESS)
 
 Welcome to the repository for **Agentic Terraform-as-a-Service (TaaS) & Unified Enterprise AI Platform**! Hope you will learn a lot about building production-grade, governance-first **Agentic Cloud Infrastructure**, **Agentic DataOps**, and **Enterprise RAG + Text-to-SQL** systems on **Google Cloud Platform (GCP)** using **Google Agent Development Kit (ADK)**, **Vertex AI Gemini**, **Terraform**, **BigQuery**, **ChromaDB**, and **FastAPI**.
 
@@ -348,8 +347,10 @@ def apply_resource(
 
 ## 6. Agent 2: Agentic DataOps — ServiceNow Incident Analytics (`dataops_agent`)
 
+> **Repository:** [https://github.com/adityasolanki205/Agentic_DataOps](https://github.com/adityasolanki205/Agentic_DataOps)
+
 ### 6.1 Overview & Multi-Agent Supervisor Architecture
-The **Agentic DataOps** module (`dataops_agent`) provides natural-language operational intelligence over ServiceNow ITSM incident records stored in Google BigQuery (`solar-dialect-264808.servicenow_itsm.incidents`).
+The [**Agentic DataOps**](https://github.com/adityasolanki205/Agentic_DataOps) module (`dataops_agent`) provides natural-language operational intelligence over ServiceNow ITSM incident records stored in Google BigQuery (`solar-dialect-264808.servicenow_itsm.incidents`).
 
 It uses a hierarchical **Multi-Agent Supervisor Pattern** where the lead `ServiceNowMasterAgent` delegates analytical tasks across **5 specialized sub-agents**:
 1. **`IncidentSummaryAgent`** — Computes total incident volume and active open backlog (`New`, `In Progress`, `On Hold`) grouped by assignment group (`Database Admin`, `Network Support`, `Service Desk`, `Cloud Infrastructure`, `Cyber Security`, `Application Dev`).
@@ -488,8 +489,10 @@ def calculate_mttr_by_group(
 
 ## 7. Agent 3: EnterpriseGPT — HR & Corporate Intelligence (`enterprise_gpt`)
 
+> **Repository:** [https://github.com/adityasolanki205/EnterpriseGPT](https://github.com/adityasolanki205/EnterpriseGPT)
+
 ### 7.1 Overview & Hybrid SQL + RAG Architecture
-**EnterpriseGPT** (`enterprise_gpt/service.py`) serves both **HR Administrators** and **Enterprise Employees** with role-based access controls:
+[**EnterpriseGPT**](https://github.com/adityasolanki205/EnterpriseGPT) (`enterprise_gpt/service.py`) serves both **HR Administrators** and **Enterprise Employees** with role-based access controls:
 - **HR Administrator Mode (`role = "hr"`):**
   - **Automated Document Ingestion & Classification:** Uploaded `.pdf`, `.docx`, and `.txt` files are automatically classified as either a `resume` or a `policy` using NLP entity recognition (`spaCy`) and structural heuristics, uploaded to Google Cloud Storage (`gs://enterprisegpt_bucket/<doc_type>/`), chunked with `RecursiveCharacterTextSplitter`, and indexed in **ChromaDB**.
   - **Hybrid Bench Talent Discovery:** When HR asks about unallocated/bench employees, EnterpriseGPT queries the structured BigQuery table (`solar-dialect-264808.enterprisegpt.employee_data`) AND automatically cross-references **ChromaDB** metadata to attach direct GCS download links for each bench employee's resume.
