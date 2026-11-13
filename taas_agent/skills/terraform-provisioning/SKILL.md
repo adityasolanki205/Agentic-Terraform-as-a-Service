@@ -33,6 +33,18 @@ Python tools perform all operations against approved starters. Do not write raw 
   Collect: Google Cloud project ID, subscription name (resource name), and parent topic name.
   Pass parent topic in config: `config={"topic": topic_name}`. Location can default to `global`.
   Managed in `artifacts/gcp/subscription.tf`.
+- **Google Compute Engine VM** (`gcp.compute_instance`):
+  Collect: Google Cloud project ID, instance name (resource name), and region/zone (defaults to `<location>-a`).
+  Optional `config={"machine_type": "e2-micro", "zone": "..."}`.
+  Managed in `artifacts/gcp/compute.tf`.
+- **Google Cloud Run Function (2nd Gen Python)** (`gcp.cloud_run_function`):
+  Collect: Google Cloud project ID, function name (resource name), and location (e.g. `asia-south2`).
+  Deploys Python 3.12 Hello World HTTP source code from `terraform_starters/gcp/cloud_run_function/src/` (viewable/editable as `function.py`).
+  Managed in `artifacts/gcp/function.tf`.
+- **Google Cloud SQL Instance** (`gcp.cloud_sql_instance`):
+  Collect: Google Cloud project ID, instance name (resource name), and location/region (e.g. `asia-south2`).
+  Optional `config={"database_version": "POSTGRES_15", "tier": "db-f1-micro"}`.
+  Managed in `artifacts/gcp/sql.tf`.
 
 ## Resource Rules
 

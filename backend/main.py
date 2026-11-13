@@ -40,7 +40,9 @@ from taas_agent.tools.tools import (
     GCP_ARTIFACTS_DIR,
     REQUESTS_DIR,
     SUPPORTED_RESOURCES,
+    _dedupe_hcl_blocks,
     _now,
+    _resolve_editor_starter_placeholders,
     _save_record,
     apply_resource,
     generate_resource_files,
@@ -200,20 +202,22 @@ Supported resources (starter templates in `terraform_starters/`, created artifac
 - Google Cloud Storage bucket (`gcp.storage_bucket`): `bucket.tf`
 - Google Cloud Pub/Sub topic (`gcp.pubsub_topic`): `topic.tf`
 - Google Cloud Pub/Sub subscription (`gcp.pubsub_subscription`): `subscription.tf` (pass `config={"topic": topic_name}`)
+- Google Compute Engine VM (`gcp.compute_instance`): `compute.tf` (optional `config={"machine_type": "e2-micro", "zone": "asia-south2-a"}`)
+- Google Cloud Run Function (2nd Gen Python Hello World) (`gcp.cloud_run_function`): `function.tf` + `function.py`
+- Google Cloud SQL instance (`gcp.cloud_sql_instance`): `sql.tf` (optional `config={"database_version": "POSTGRES_15", "tier": "db-f1-micro"}`)
 
 WORKFLOW:
-1. CREATE & PRE-PLAN CUSTOMIZATION:
+1. CREATE & PLAN:
    - Collect required parameters (default project_id is `solar-dialect-264808` and default location is `asia-south2` unless specified otherwise).
    - For BigQuery tables, ask if the user wants to provide a JSON schema or create without a schema.
-   - Call `generate_resource_files` to pull from `terraform_starters/` and write the resource block into `artifacts/gcp/<file>.tf`.
-   - Present the generated HCL code in a ```hcl block and tell the user:
-     "Here is the generated Terraform code in `artifacts/gcp/`. You can review or edit it directly in the **Pre-Plan Code Editor** on the right, ask me how to add attributes (like tags/labels, retention, or lifecycle rules), or click **Run `terraform plan`** when ready."
+   - Call `generate_resource_files` ONCE to pull from `terraform_starters/` and write the resource block into `artifacts/gcp/<file>.tf` (do NOT also call `update_artifact_code` for the same create request unless customizing attributes later).
+   - If `plan_resource(request_id)` is also called in the same turn (e.g., 1-Click TaaS or when the user asks to create and plan), DO NOT print two separate code blocks. State that the **Terraform Plan is ready**, show the HCL / plan code block **ONLY ONCE** (without `# --- START` / `# --- END` marker comments), and tell the user to use the **Approval Gate (`apply` / `dont apply`)** below to confirm or cancel.
+   - If only `generate_resource_files` is called without `plan_resource`, show the generated HCL code block once (without `# --- START` / `# --- END` comments) and tell the user they can edit it in the **Pre-Plan Code Editor** or click **Plan** when ready.
    - When asked how to configure an attribute (e.g. "how to add tags/labels or lifecycle rules"), call `lookup_terraform_docs` (fetches live docs with zero cache) and suggest the HCL snippet.
    - When asked to modify code via chat, call `update_artifact_code`.
-   - When the user says "proceed to plan" or "run plan", call `plan_resource(request_id)`.
-   - After `plan_resource` returns `AWAITING_APPROVAL`, show the plan summary and instruct the user to use the **Approval Gate (`apply` / `dont apply`)** to confirm or cancel.
+   - When `plan_resource(request_id)` is called later by itself, state that the plan is ready, show the concise plan summary block once, and instruct the user to use the **Approval Gate (`apply` / `dont apply`)** below.
 2. DELETE / DEACTIVATE:
-   - Call `plan_deactivate_resource` to comment out (`#`) the resource block in `artifacts/gcp/` and generate a destroy plan.
+   - Call `plan_deactivate_resource` to comment out (`#`) the resource block in `artifacts/gcp/` and generate a destroy plan. State that the deactivation plan is ready and show the concise plan summary block only once.
 3. RECREATE:
    - Call `plan_recreate_resource` to uncomment the resource block and generate a creation plan.
 4. LIST / STATUS:
@@ -280,16 +284,13 @@ def _get_latest_request_info() -> dict:
     }
 
 
-def _ensure_request_record_for_file(file_name: str) -> Optional[str]:
-    """If a user edited a .tf file directly in the editor and clicked Run Plan,
-    ensure there is a valid request record in `.taas/requests` for the target resource in that file."""
-    info = _get_latest_request_info()
-    if (
-        info.get("latest_request_id")
-        and info.get("latest_status") == "ARTIFACTS_READY"
-        and info.get("active_file") == file_name
-    ):
-        return info["latest_request_id"]
+def _ensure_request_record_for_file(file_name: str) -> tuple[Optional[str], Optional[str]]:
+    """Ensure a valid request record in `.taas/requests` exists for the selected right-panel file.
+
+    Returns:
+        (request_id, error_message) — never falls back to an unrelated previous file's request.
+    """
+    target_file = "function.tf" if file_name == "function.py" else file_name
 
     file_to_rtype = {
         "bucket.tf": "gcp.storage_bucket",
@@ -297,18 +298,35 @@ def _ensure_request_record_for_file(file_name: str) -> Optional[str]:
         "table.tf": "gcp.bigquery_table",
         "topic.tf": "gcp.pubsub_topic",
         "subscription.tf": "gcp.pubsub_subscription",
+        "compute.tf": "gcp.compute_instance",
+        "function.tf": "gcp.cloud_run_function",
+        "sql.tf": "gcp.cloud_sql_instance",
     }
-    rtype = file_to_rtype.get(file_name)
+    rtype = file_to_rtype.get(target_file)
     if not rtype:
-        return info.get("latest_request_id")
+        return None, (
+            f"'{file_name}' is a shared configuration file, not a resource file. "
+            "Select a resource file (e.g. compute.tf, function.tf, sql.tf, bucket.tf) or use 1-Click TaaS."
+        )
 
-    tf_path = GCP_ARTIFACTS_DIR / file_name
+    tf_path = GCP_ARTIFACTS_DIR / target_file
     if not tf_path.is_file():
-        return info.get("latest_request_id")
+        return None, (
+            f"No generated resource found in 'artifacts/gcp/{target_file}' yet "
+            "(you are viewing the starter template). Edit a concrete resource name & save, "
+            "or create one via 1-Click TaaS / Chat first."
+        )
 
-    text = tf_path.read_text(encoding="utf-8")
     project_id = os.getenv("GOOGLE_CLOUD_PROJECT", "solar-dialect-264808").strip()
     location = os.getenv("TAAS_DEFAULT_REGION", "asia-south2").strip()
+    if location.lower() == "global":
+        location = "asia-south2"
+
+    raw_text = tf_path.read_text(encoding="utf-8")
+    text = _resolve_editor_starter_placeholders(target_file, raw_text, project_id, location)
+    text = _dedupe_hcl_blocks(text)
+    if text != raw_text:
+        tf_path.write_text(text, encoding="utf-8")
 
     # 1. Check if the user commented out an active resource block in this file (e.g. via Ctrl + /)
     active_list = list_taas_resources(project_id=project_id, include_deactivated=False).get("resources", [])
@@ -322,10 +340,9 @@ def _ensure_request_record_for_file(file_name: str) -> Optional[str]:
         c_hcl_type, c_tf_name = cm.group(1), cm.group(2)
         if c_tf_name == "requested":
             continue
-        # Check if this commented-out resource is still marked active in state/records
         matched_res_name = None
         for r_name in active_names_in_cat:
-            if r_name == c_tf_name or re.sub(r"[^A-Za-z0-9_]", "_", r_name) == c_tf_name:
+            if r_name == c_tf_name or re.sub(r"[^A-Za-z0-9_]", "_", r_name.lower()) == c_tf_name.lower():
                 matched_res_name = r_name
                 break
         if matched_res_name:
@@ -337,34 +354,47 @@ def _ensure_request_record_for_file(file_name: str) -> Optional[str]:
                 "resource_type": rtype,
                 "resource_name": matched_res_name,
                 "project_id": project_id,
-                "location": location,
+                "location": active_names_in_cat[matched_res_name].get("location") or location,
                 "resource_config": {},
                 "artifact_directory": str(GCP_ARTIFACTS_DIR.resolve()),
                 "primary_tf_file": str(tf_path.resolve()),
                 "expected_address": expected_address,
                 "tf_resource_name": c_tf_name,
                 "status": "ARTIFACTS_READY",
-                "status_message": f"Deactivation block '{expected_address}' ready for planning in {file_name}.",
+                "status_message": f"Deactivation block '{expected_address}' ready for planning in {target_file}.",
                 "created_at": _now(),
                 "updated_at": _now(),
             }
             _save_record(record)
-            return req_id
+            return req_id, None
 
-    # 2. Otherwise find the target active resource block in the file (preferring newly added ones)
+    # 2. Check active non-commented resource blocks
+    active_non_comment_lines = "\n".join(
+        ln for ln in text.splitlines() if not ln.lstrip().startswith("#")
+    )
+    if "var.resource_config" in active_non_comment_lines:
+        return None, (
+            f"'{target_file}' still contains starter placeholder(s) `var.resource_config[...]`. "
+            "Replace the placeholder with a concrete resource name (and save), or create the resource via 1-Click TaaS / Chat."
+        )
+
     matches = [
         m
         for m in re.finditer(r'^\s*resource\s+"([a-zA-Z0-9_]+)"\s+"([a-zA-Z0-9_]+)"', text, re.MULTILINE)
         if m.group(2) != "requested"
     ]
     if not matches:
-        return info.get("latest_request_id")
+        return None, (
+            f"No concrete resource block found in 'artifacts/gcp/{target_file}'. "
+            "Rename the starter resource block from \"requested\" (and replace placeholders) or use 1-Click TaaS."
+        )
 
+    # Prefer newly added / not-yet-active resource blocks in this file
     target_match = matches[-1]
     for m in reversed(matches):
         cand_name = m.group(2)
         if cand_name not in active_names_in_cat and all(
-            re.sub(r"[^A-Za-z0-9_]", "_", k) != cand_name for k in active_names_in_cat
+            re.sub(r"[^A-Za-z0-9_]", "_", k.lower()) != cand_name.lower() for k in active_names_in_cat
         ):
             target_match = m
             break
@@ -372,8 +402,24 @@ def _ensure_request_record_for_file(file_name: str) -> Optional[str]:
     hcl_type, tf_name = target_match.group(1), target_match.group(2)
     expected_address = f"{hcl_type}.{tf_name}"
 
-    name_match = re.search(r'(?:name|dataset_id|table_id)\s*=\s*"([^"]+)"', text[target_match.start() :])
+    # Extract slice covering just the selected resource block
+    next_res = re.search(r'^\s*resource\s+"', text[target_match.end() :], re.MULTILINE)
+    block_slice = text[target_match.start() : target_match.end() + next_res.start()] if next_res else text[target_match.start() :]
+
+    name_match = re.search(r'(?:name|dataset_id|table_id)\s*=\s*"([^"]+)"', block_slice)
     cloud_name = name_match.group(1) if name_match else tf_name
+
+    loc_match = re.search(r'^\s*(?:zone|region|location)\s*=\s*"([^"]+)"', block_slice, re.MULTILINE)
+    block_location = loc_match.group(1) if loc_match else location
+
+    # Reuse existing ARTIFACTS_READY record if it already points to this exact address & file
+    info = _get_latest_request_info()
+    if (
+        info.get("latest_request_id")
+        and info.get("latest_status") == "ARTIFACTS_READY"
+        and info.get("active_file") == target_file
+    ):
+        return info["latest_request_id"], None
 
     request_id = str(uuid4())
     record = {
@@ -382,19 +428,19 @@ def _ensure_request_record_for_file(file_name: str) -> Optional[str]:
         "resource_type": rtype,
         "resource_name": cloud_name,
         "project_id": project_id,
-        "location": location,
+        "location": block_location,
         "resource_config": {},
         "artifact_directory": str(GCP_ARTIFACTS_DIR.resolve()),
         "primary_tf_file": str(tf_path.resolve()),
         "expected_address": expected_address,
         "tf_resource_name": tf_name,
         "status": "ARTIFACTS_READY",
-        "status_message": f"Resource block '{expected_address}' ready for planning in {file_name}.",
+        "status_message": f"Resource block '{expected_address}' ready for planning in {target_file}.",
         "created_at": _now(),
         "updated_at": _now(),
     }
     _save_record(record)
-    return request_id
+    return request_id, None
 
 
 @app.post("/api/taas/chat")
@@ -529,12 +575,13 @@ def save_artifact(req: ArtifactUpdateRequest):
 def trigger_plan(req: Optional[PlanRequest] = None):
     request_id = req.request_id if req and req.request_id else None
     file_name = req.file_name if req and req.file_name else "bucket.tf"
+    resolve_err = None
     if not request_id:
-        request_id = _ensure_request_record_for_file(file_name)
+        request_id, resolve_err = _ensure_request_record_for_file(file_name)
     if not request_id:
         return {
             "status": "ERROR",
-            "message": (
+            "message": resolve_err or (
                 "No generated resource request found to plan. "
                 "Generate a resource via chat/1-Click TaaS or save a valid resource block in the editor first."
             ),
@@ -548,6 +595,20 @@ def trigger_plan(req: Optional[PlanRequest] = None):
         "plan_output": res.get("plan_summary", ""),
         "details": res.get("message", ""),
         **req_info,
+    }
+
+
+def _run_post_decision_sync() -> dict:
+    """Sync local artifacts/gcp/*.tf and registry with remote GCS state after approve/cancel."""
+    try:
+        sync_res = sync_terraform_state()
+    except Exception as exc:
+        sync_res = {"status": "SYNC_WARNING", "message": str(exc)}
+    artifacts = read_artifact_code()
+    return {
+        "sync_result": sync_res,
+        "files": artifacts.get("file_details", {}),
+        "raw_files": artifacts.get("files", {}),
     }
 
 
@@ -568,21 +629,26 @@ async def trigger_apply(req: ApprovePlanRequest):
         confirmation=req.decision,
     )
     if req.decision == "dont apply":
+        sync_payload = _run_post_decision_sync()
         return {
             "status": "CANCELLED",
             "plan_id": request_id,
             "message": apply_res.get("message", "Plan cancelled."),
+            **sync_payload,
         }
 
     if apply_res.get("status") not in ("APPLIED", "DEACTIVATED"):
+        sync_payload = _run_post_decision_sync()
         return {
             "status": apply_res.get("status", "ERROR"),
             "plan_id": request_id,
             "message": apply_res.get("message", "Terraform apply failed."),
             "details": apply_res.get("apply_summary", ""),
+            **sync_payload,
         }
 
     verify_res = await verify_resource(request_id=request_id)
+    sync_payload = _run_post_decision_sync()
     return {
         "status": "SUCCESS",
         "plan_id": request_id,
@@ -590,6 +656,7 @@ async def trigger_apply(req: ApprovePlanRequest):
         "apply_output": apply_res.get("apply_summary", ""),
         "verify_result": verify_res,
         "message": verify_res.get("message") or apply_res.get("message"),
+        **sync_payload,
     }
 
 
@@ -606,6 +673,9 @@ def get_resources(project_id: Optional[str] = None, sync: bool = False):
         "storage_bucket": [],
         "bigquery_dataset": [],
         "bigquery_table": [],
+        "compute_instance": [],
+        "cloud_run_function": [],
+        "cloud_sql_instance": [],
         "pubsub_topic": [],
         "pubsub_subscription": [],
     }
@@ -613,6 +683,9 @@ def get_resources(project_id: Optional[str] = None, sync: bool = False):
         "storage_bucket": [],
         "bigquery_dataset": [],
         "bigquery_table": [],
+        "compute_instance": [],
+        "cloud_run_function": [],
+        "cloud_sql_instance": [],
         "pubsub_topic": [],
         "pubsub_subscription": [],
     }

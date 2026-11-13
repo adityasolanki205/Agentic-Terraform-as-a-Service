@@ -11,11 +11,13 @@ These tools are cloud- and resource-agnostic. They support the full resource lif
 
 import asyncio
 import hashlib
+import io
 import json
 import os
 import re
 import shutil
 import subprocess
+import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
@@ -82,6 +84,33 @@ SUPPORTED_RESOURCES = {
         "name_param": "subscription_name",
         "description": "Google Cloud Pub/Sub Subscription",
     },
+    "gcp.compute_instance": {
+        "provider": "gcp",
+        "short_name": "compute_instance",
+        "starter_dir": STARTERS_DIR / "gcp" / "compute_instance",
+        "primary_tf": "compute.tf",
+        "resource_type_hcl": "google_compute_instance",
+        "name_param": "instance_name",
+        "description": "Google Compute Engine VM Instance",
+    },
+    "gcp.cloud_run_function": {
+        "provider": "gcp",
+        "short_name": "cloud_run_function",
+        "starter_dir": STARTERS_DIR / "gcp" / "cloud_run_function",
+        "primary_tf": "function.tf",
+        "resource_type_hcl": "google_cloudfunctions2_function",
+        "name_param": "function_name",
+        "description": "Google Cloud Run Function (2nd Gen Python)",
+    },
+    "gcp.cloud_sql_instance": {
+        "provider": "gcp",
+        "short_name": "cloud_sql_instance",
+        "starter_dir": STARTERS_DIR / "gcp" / "cloud_sql_instance",
+        "primary_tf": "sql.tf",
+        "resource_type_hcl": "google_sql_database_instance",
+        "name_param": "instance_name",
+        "description": "Google Cloud SQL Database Instance",
+    },
 }
 
 
@@ -105,6 +134,21 @@ def _normalize_resource_type(resource_type: str) -> str:
         "dataset": "gcp.bigquery_dataset",
         "bigquery_table": "gcp.bigquery_table",
         "table": "gcp.bigquery_table",
+        "compute_instance": "gcp.compute_instance",
+        "compute_engine": "gcp.compute_instance",
+        "compute": "gcp.compute_instance",
+        "gce_instance": "gcp.compute_instance",
+        "vm": "gcp.compute_instance",
+        "cloud_run_function": "gcp.cloud_run_function",
+        "cloud_run_functions": "gcp.cloud_run_function",
+        "cloud_function": "gcp.cloud_run_function",
+        "cloudfunctions2_function": "gcp.cloud_run_function",
+        "function": "gcp.cloud_run_function",
+        "cloud_sql_instance": "gcp.cloud_sql_instance",
+        "cloud_sql": "gcp.cloud_sql_instance",
+        "cloudsql": "gcp.cloud_sql_instance",
+        "sql_instance": "gcp.cloud_sql_instance",
+        "sql": "gcp.cloud_sql_instance",
     }
     if cleaned in aliases:
         return aliases[cleaned]
@@ -219,6 +263,64 @@ def _ensure_common_artifacts(
             f'prefix = "taas/{project_id.strip()}/gcp"\n'
         )
         (artifacts_dir / "backend.tfvars").write_text(backend_content, encoding="utf-8")
+
+
+def _ensure_function_source_zip(
+    project_id: str,
+    tf_name: str,
+    bucket_name: str | None = None,
+    object_name: str | None = None,
+) -> tuple[str, str]:
+    """Package Python Hello World Cloud Run Function source code and upload it to GCS."""
+    target_bucket = (
+        bucket_name
+        or os.getenv("TAAS_STATE_BUCKET", "").strip()
+        or "terraform-implementation"
+    )
+    target_object = object_name or f"taas/{project_id.strip()}/functions/{tf_name}-source.zip"
+
+    src_dir = STARTERS_DIR / "gcp" / "cloud_run_function" / "src"
+    custom_main_py = GCP_ARTIFACTS_DIR / "function.py"
+    starter_main_py = src_dir / "main.py"
+    req_txt = src_dir / "requirements.txt"
+
+    main_code = (
+        custom_main_py.read_text(encoding="utf-8")
+        if custom_main_py.is_file()
+        else (
+            starter_main_py.read_text(encoding="utf-8")
+            if starter_main_py.is_file()
+            else (
+                "import functions_framework\n\n"
+                "@functions_framework.http\n"
+                "def hello_http(request):\n"
+                "    return 'Hello, World!'\n"
+            )
+        )
+    )
+    req_code = (
+        req_txt.read_text(encoding="utf-8")
+        if req_txt.is_file()
+        else "functions-framework==3.*\n"
+    )
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("main.py", main_code)
+        zf.writestr("requirements.txt", req_code)
+    zip_bytes = buf.getvalue()
+
+    try:
+        from google.cloud import storage
+
+        client = storage.Client(project=project_id.strip())
+        blob = client.bucket(target_bucket).blob(target_object)
+        blob.upload_from_string(zip_bytes, content_type="application/zip")
+        print(f"[TaaS] Uploaded Python Cloud Run Function source zip to gs://{target_bucket}/{target_object}")
+    except Exception as exc:
+        print(f"[TaaS][Warn] Could not upload Cloud Run Function zip to gs://{target_bucket}/{target_object}: {exc}")
+
+    return target_bucket, target_object
 
 
 def _build_resource_hcl(
@@ -438,60 +540,273 @@ def _build_resource_hcl(
         hcl = f"# --- START: {tf_address} ---\n{rendered}\n# --- END: {tf_address} ---"
         return hcl, tf_name, tf_address
 
+    elif resource_type == "gcp.compute_instance":
+        inst_name = clean_name.lower()
+        tf_name = re.sub(r"[^A-Za-z0-9_]", "_", inst_name)
+        tf_address = f"google_compute_instance.{tf_name}"
+
+        raw_zone = str(config.get("zone") or "").strip()
+        if raw_zone:
+            zone = raw_zone
+        elif len(clean_location.split("-")) >= 3:
+            zone = clean_location
+        else:
+            zone = f"{clean_location}-a"
+        machine_type = str(config.get("machine_type") or "e2-micro").strip()
+
+        starter_file = STARTERS_DIR / "gcp" / "compute_instance" / "compute.tf"
+        if starter_file.is_file():
+            template = starter_file.read_text(encoding="utf-8")
+            template_lines = [l for l in template.splitlines() if not l.startswith("#")]
+            template = "\n".join(template_lines).strip()
+            rendered = (
+                template.replace('"requested"', f'"{tf_name}"')
+                .replace("{{tf_name}}", tf_name)
+                .replace('var.resource_config["instance_name"]', f'"{inst_name}"')
+                .replace("{{instance_name}}", inst_name)
+                .replace('lookup(var.resource_config, "machine_type", "e2-micro")', f'"{machine_type}"')
+                .replace('lookup(var.resource_config, "zone", "${var.location}-a")', f'"{zone}"')
+                .replace("var.project_id", f'"{clean_project}"')
+                .replace("{{project_id}}", clean_project)
+                .replace("var.location", f'"{clean_location}"')
+                .strip()
+            )
+        else:
+            rendered = f"""resource "google_compute_instance" "{tf_name}" {{
+  name                      = "{inst_name}"
+  machine_type              = "{machine_type}"
+  zone                      = "{zone}"
+  project                   = "{clean_project}"
+  allow_stopping_for_update = true
+
+  boot_disk {{
+    initialize_params {{
+      image = "debian-cloud/debian-12"
+    }}
+  }}
+
+  network_interface {{
+    network = "default"
+    access_config {{}}
+  }}
+}}"""
+        hcl = f"# --- START: {tf_address} ---\n{rendered}\n# --- END: {tf_address} ---"
+        return hcl, tf_name, tf_address
+
+    elif resource_type == "gcp.cloud_run_function":
+        func_name = clean_name.lower()
+        tf_name = re.sub(r"[^A-Za-z0-9_]", "_", func_name)
+        tf_address = f"google_cloudfunctions2_function.{tf_name}"
+
+        src_bucket, src_object = _ensure_function_source_zip(
+            project_id=clean_project,
+            tf_name=tf_name,
+            bucket_name=str(config.get("source_bucket") or "").strip() or None,
+            object_name=str(config.get("source_object") or "").strip() or None,
+        )
+        runtime = str(config.get("runtime") or "python312").strip()
+        entry_point = str(config.get("entry_point") or "hello_http").strip()
+
+        starter_file = STARTERS_DIR / "gcp" / "cloud_run_function" / "function.tf"
+        if starter_file.is_file():
+            template = starter_file.read_text(encoding="utf-8")
+            template_lines = [l for l in template.splitlines() if not l.startswith("#")]
+            template = "\n".join(template_lines).strip()
+            rendered = (
+                template.replace('"requested"', f'"{tf_name}"')
+                .replace("{{tf_name}}", tf_name)
+                .replace('var.resource_config["function_name"]', f'"{func_name}"')
+                .replace('var.resource_config["source_bucket"]', f'"{src_bucket}"')
+                .replace('var.resource_config["source_object"]', f'"{src_object}"')
+                .replace('"python312"', f'"{runtime}"')
+                .replace('"hello_http"', f'"{entry_point}"')
+                .replace("var.project_id", f'"{clean_project}"')
+                .replace("var.location", f'"{clean_location}"')
+                .strip()
+            )
+        else:
+            rendered = f"""resource "google_cloudfunctions2_function" "{tf_name}" {{
+  name        = "{func_name}"
+  location    = "{clean_location}"
+  project     = "{clean_project}"
+  description = "Python Hello World Cloud Run Function managed by TaaS"
+
+  build_config {{
+    runtime     = "{runtime}"
+    entry_point = "{entry_point}"
+    source {{
+      storage_source {{
+        bucket = "{src_bucket}"
+        object = "{src_object}"
+      }}
+    }}
+  }}
+
+  service_config {{
+    max_instance_count = 3
+    available_memory   = "256M"
+    timeout_seconds    = 60
+  }}
+}}"""
+        hcl = f"# --- START: {tf_address} ---\n{rendered}\n# --- END: {tf_address} ---"
+        return hcl, tf_name, tf_address
+
+    elif resource_type == "gcp.cloud_sql_instance":
+        sql_name = clean_name.lower()
+        tf_name = re.sub(r"[^A-Za-z0-9_]", "_", sql_name)
+        tf_address = f"google_sql_database_instance.{tf_name}"
+
+        db_version = str(config.get("database_version") or "POSTGRES_15").strip()
+        tier = str(config.get("tier") or "db-f1-micro").strip()
+
+        starter_file = STARTERS_DIR / "gcp" / "cloud_sql_instance" / "sql.tf"
+        if starter_file.is_file():
+            template = starter_file.read_text(encoding="utf-8")
+            template_lines = [l for l in template.splitlines() if not l.startswith("#")]
+            template = "\n".join(template_lines).strip()
+            rendered = (
+                template.replace('"requested"', f'"{tf_name}"')
+                .replace("{{tf_name}}", tf_name)
+                .replace('var.resource_config["instance_name"]', f'"{sql_name}"')
+                .replace('lookup(var.resource_config, "database_version", "POSTGRES_15")', f'"{db_version}"')
+                .replace('lookup(var.resource_config, "tier", "db-f1-micro")', f'"{tier}"')
+                .replace("var.project_id", f'"{clean_project}"')
+                .replace("var.location", f'"{clean_location}"')
+                .strip()
+            )
+        else:
+            rendered = f"""resource "google_sql_database_instance" "{tf_name}" {{
+  name                = "{sql_name}"
+  project             = "{clean_project}"
+  region              = "{clean_location}"
+  database_version    = "{db_version}"
+  deletion_protection = false
+
+  settings {{
+    tier              = "{tier}"
+    availability_type = "ZONAL"
+    disk_autoresize   = true
+    disk_size         = 10
+    disk_type         = "PD_SSD"
+  }}
+}}"""
+        hcl = f"# --- START: {tf_address} ---\n{rendered}\n# --- END: {tf_address} ---"
+        return hcl, tf_name, tf_address
+
     else:
         raise ValueError(f"Unsupported resource type: {resource_type}")
 
 
+def _find_hcl_block_end(lines: list[str], start_line: int) -> int | None:
+    """Return closing line index of an HCL block starting at start_line."""
+    brace_count = 0
+    saw_open = False
+    for j in range(start_line, len(lines)):
+        line = lines[j]
+        in_str = False
+        esc = False
+        for idx, ch in enumerate(line):
+            if esc:
+                esc = False
+                continue
+            if ch == "\\" and in_str:
+                esc = True
+                continue
+            if ch == '"':
+                in_str = not in_str
+                continue
+            if not in_str:
+                if ch == "#":
+                    break
+                if ch == "/" and idx + 1 < len(line) and line[idx + 1] == "/":
+                    break
+                if ch == "{":
+                    brace_count += 1
+                    saw_open = True
+                elif ch == "}":
+                    brace_count -= 1
+        if saw_open and brace_count <= 0:
+            return j
+    return None
+
+
+def _dedupe_hcl_blocks(content: str, target_address: str | None = None) -> str:
+    """Remove duplicate active HCL resource blocks (keeping the latest copy per address)."""
+    lines = content.splitlines()
+    ranges: list[tuple[str, int, int]] = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        m_start = re.match(r"^\s*#\s*---\s*START:\s*([A-Za-z0-9_]+\.[A-Za-z0-9_]+)(?:\s|---|$)", line)
+        if m_start:
+            addr = m_start.group(1)
+            end_marker = f"# --- END: {addr}"
+            end_idx = None
+            for j in range(i + 1, len(lines)):
+                if lines[j].strip().startswith(end_marker):
+                    end_idx = j
+                    break
+            if end_idx is None:
+                # Marker was orphaned without END marker; fall back to HCL block braces
+                for k in range(i + 1, len(lines)):
+                    if re.match(r'^\s*resource\s+"[^"]+"\s+"[^"]+"', lines[k]):
+                        end_idx = _find_hcl_block_end(lines, k)
+                        break
+            if end_idx is not None:
+                has_active_res = any(
+                    re.match(r'^\s*resource\s+"[^"]+"\s+"[^"]+"', lines[k])
+                    for k in range(i, end_idx + 1)
+                )
+                if has_active_res:
+                    ranges.append((addr, i, end_idx))
+                    i = end_idx + 1
+                    continue
+        m_res = re.match(r'^\s*resource\s+"([A-Za-z0-9_]+)"\s+"([A-Za-z0-9_]+)"\s*\{', line)
+        if m_res:
+            addr = f"{m_res.group(1)}.{m_res.group(2)}"
+            end_idx = _find_hcl_block_end(lines, i)
+            if end_idx is not None:
+                ranges.append((addr, i, end_idx))
+                i = end_idx + 1
+                continue
+        i += 1
+
+    # Decide which ranges to drop
+    remove_indices: set[int] = set()
+    if target_address is not None:
+        for addr, s_idx, e_idx in ranges:
+            if addr == target_address:
+                remove_indices.update(range(s_idx, e_idx + 1))
+    else:
+        seen_latest: dict[str, int] = {}
+        for idx, (addr, _, _) in enumerate(ranges):
+            seen_latest[addr] = idx
+        for idx, (addr, s_idx, e_idx) in enumerate(ranges):
+            if seen_latest[addr] != idx:
+                remove_indices.update(range(s_idx, e_idx + 1))
+
+    if not remove_indices:
+        return content
+
+    kept_lines = [ln for idx, ln in enumerate(lines) if idx not in remove_indices]
+    cleaned = re.sub(r"\n{3,}", "\n\n", "\n".join(kept_lines)).strip()
+    return (cleaned + "\n") if cleaned else ""
+
+
 def _upsert_resource_block(file_path: Path, tf_address: str, new_block: str) -> None:
-    """Insert or replace a resource block in a shared .tf file."""
+    """Insert or replace a resource block in a shared .tf file without leaving duplicates."""
     file_path.parent.mkdir(parents=True, exist_ok=True)
     if not file_path.is_file():
-        file_path.write_text(f"# Managed by Agentic Terraform as a Service (TaaS)\n\n{new_block}\n", encoding="utf-8")
+        file_path.write_text(f"# Managed by Agentic Terraform as a Service (TaaS)\n\n{new_block.strip()}\n", encoding="utf-8")
         return
 
     content = file_path.read_text(encoding="utf-8")
-    lines = content.splitlines()
-
-    start_marker = f"# --- START: {tf_address}"
-    end_marker = f"# --- END: {tf_address}"
-
-    start_idx = None
-    end_idx = None
-
-    for i, line in enumerate(lines):
-        if line.startswith(start_marker):
-            start_idx = i
-        elif line.startswith(end_marker) and start_idx is not None:
-            end_idx = i
-            break
-
-    # If markers not found, search for header e.g. resource "google_bigquery_dataset" "tform"
-    if start_idx is None or end_idx is None:
-        parts = tf_address.split(".", 1)
-        if len(parts) == 2:
-            r_type, r_name = parts
-            target_type = f'resource "{r_type}"'
-            target_name = f'"{r_name}"'
-            for i, line in enumerate(lines):
-                if target_type in line and target_name in line:
-                    start_idx = i
-                    brace_count = 0
-                    for j in range(i, len(lines)):
-                        brace_count += lines[j].count("{") - lines[j].count("}")
-                        if brace_count == 0 and "{" in lines[i]:
-                            end_idx = j
-                            break
-                    break
-
-    if start_idx is not None and end_idx is not None:
-        before = lines[:start_idx]
-        after = lines[end_idx + 1 :]
-        updated = "\n".join(before).rstrip() + "\n\n" + new_block.strip() + "\n\n" + "\n".join(after).lstrip()
-        file_path.write_text(updated.strip() + "\n", encoding="utf-8")
-        return
-
-    # Append to file
-    updated = content.rstrip() + "\n\n" + new_block.strip() + "\n"
+    stripped_existing = _dedupe_hcl_blocks(content, target_address=tf_address)
+    if not stripped_existing.strip():
+        updated = f"# Managed by Agentic Terraform as a Service (TaaS)\n\n{new_block.strip()}\n"
+    else:
+        updated = stripped_existing.rstrip() + "\n\n" + new_block.strip() + "\n"
+    updated = _dedupe_hcl_blocks(updated)
     file_path.write_text(updated, encoding="utf-8")
 
 
@@ -831,6 +1146,13 @@ def _validate_inputs(
                 "Pub/Sub topic or subscription name must start with a letter, be 3-255 characters, "
                 "and contain only letters, numbers, hyphens, underscores, or periods."
             )
+    elif norm_type in ("gcp.compute_instance", "gcp.cloud_run_function", "gcp.cloud_sql_instance"):
+        clean_res = resource_name.strip().lower()
+        if not re.fullmatch(r"[a-z]([a-z0-9-]{0,61}[a-z0-9])?", clean_res):
+            errors.append(
+                "Resource name must be 1-63 characters, start with a lowercase letter, "
+                "end with a lowercase letter or digit, and contain only lowercase letters, digits, or hyphens."
+            )
     else:
         if not re.fullmatch(r"[A-Za-z0-9_]{1,1024}", resource_name.strip()):
             errors.append("Resource name must contain only letters, numbers, or underscores.")
@@ -949,6 +1271,12 @@ def generate_resource_files(
     }
     _save_record(record)
 
+    clean_hcl = "\n".join(
+        line
+        for line in hcl_block.splitlines()
+        if not line.strip().startswith("# --- START:") and not line.strip().startswith("# --- END:")
+    ).strip()
+
     return {
         "status": "SUCCESS",
         "request_id": request_id,
@@ -958,7 +1286,7 @@ def generate_resource_files(
         "artifact_directory": str(output_dir.resolve()),
         "expected_address": tf_address,
         "primary_tf_file": primary_tf_name,
-        "generated_code": hcl_block,
+        "generated_code": clean_hcl,
         "files": [
             str(output_dir / "main.tf"),
             str(output_dir / "variables.tf"),
@@ -966,8 +1294,7 @@ def generate_resource_files(
             str(output_dir / "terraform.tfvars"),
         ],
         "message": (
-            f"Terraform resource '{tf_address}' added to '{primary_tf_name}' under 'artifacts/gcp'. "
-            "You can review or customize this code before running Terraform plan."
+            f"Terraform resource '{tf_address}' added to '{primary_tf_name}' under 'artifacts/gcp'."
         ),
     }
 
@@ -1034,6 +1361,9 @@ def sync_terraform_state(
         "google_bigquery_table": "gcp.bigquery_table",
         "google_pubsub_topic": "gcp.pubsub_topic",
         "google_pubsub_subscription": "gcp.pubsub_subscription",
+        "google_compute_instance": "gcp.compute_instance",
+        "google_cloudfunctions2_function": "gcp.cloud_run_function",
+        "google_sql_database_instance": "gcp.cloud_sql_instance",
     }
 
     state_addresses = set()
@@ -1078,6 +1408,34 @@ def sync_terraform_state(
             res_name = attrs.get("name") or tf_name
             res_loc = "global"
             cfg = {"topic": str(attrs.get("topic") or "").split("/")[-1]}
+        elif norm_type == "gcp.compute_instance":
+            res_name = attrs.get("name") or tf_name
+            raw_zone = str(attrs.get("zone") or f"{default_loc}-a").split("/")[-1]
+            res_loc = raw_zone
+            cfg = {
+                "zone": raw_zone,
+                "machine_type": str(attrs.get("machine_type") or "e2-micro").split("/")[-1],
+            }
+        elif norm_type == "gcp.cloud_run_function":
+            res_name = attrs.get("name") or tf_name
+            res_loc = attrs.get("location") or default_loc
+            build_cfg = (attrs.get("build_config") or [{}])[0] if isinstance(attrs.get("build_config"), list) else {}
+            storage_src = ((build_cfg.get("source") or [{}])[0].get("storage_source") or [{}])[0] if isinstance(build_cfg.get("source"), list) else {}
+            cfg = {
+                "runtime": build_cfg.get("runtime") or "python312",
+                "entry_point": build_cfg.get("entry_point") or "hello_http",
+                "source_bucket": storage_src.get("bucket") or state_bucket,
+                "source_object": storage_src.get("object") or f"taas/{clean_project}/functions/{tf_name}-source.zip",
+            }
+        elif norm_type == "gcp.cloud_sql_instance":
+            res_name = attrs.get("name") or tf_name
+            res_loc = attrs.get("region") or default_loc
+            settings_list = attrs.get("settings") or []
+            tier_val = settings_list[0].get("tier", "db-f1-micro") if isinstance(settings_list, list) and settings_list else "db-f1-micro"
+            cfg = {
+                "database_version": attrs.get("database_version") or "POSTGRES_15",
+                "tier": tier_val,
+            }
         else:
             continue
 
@@ -1210,6 +1568,28 @@ def plan_resource(request_id: str) -> dict:
     except Exception as sync_err:
         print(f"[TaaS][Warn] Pre-plan state sync warning: {sync_err}")
 
+    # Guard against any duplicate resource blocks across artifacts/gcp/*.tf before fmt/validate
+    for tf_path in sorted(working_directory.glob("*.tf")):
+        try:
+            orig_tf = tf_path.read_text(encoding="utf-8")
+            deduped_tf = _dedupe_hcl_blocks(orig_tf)
+            if deduped_tf != orig_tf:
+                tf_path.write_text(deduped_tf, encoding="utf-8")
+                print(f"[TaaS] Deduplicated duplicate resource block(s) in {tf_path.name}.")
+        except Exception as dedupe_err:
+            print(f"[TaaS][Warn] Could not dedupe {tf_path.name}: {dedupe_err}")
+
+    # Ensure Cloud Run Function source zip is freshly packaged & uploaded to GCS when planning create/recreate
+    if record.get("resource_type") == "gcp.cloud_run_function" and record.get("action") in ("CREATE", "RECREATE"):
+        cfg = record.get("resource_config") or {}
+        tf_name = record.get("tf_resource_name") or re.sub(r"[^A-Za-z0-9_]", "_", record.get("resource_name", "").lower())
+        _ensure_function_source_zip(
+            project_id=clean_project,
+            tf_name=tf_name,
+            bucket_name=cfg.get("source_bucket") or bucket_name,
+            object_name=cfg.get("source_object") or f"taas/{clean_project}/functions/{tf_name}-source.zip",
+        )
+
     # 1. Format & Init
     init_steps = [
         ("fmt", ["fmt", "-recursive"]),
@@ -1337,11 +1717,36 @@ def plan_resource(request_id: str) -> dict:
             "plan_summary": readable_plan["output"][:30000],
         }
 
-    # 4. Hash plan and save awaiting user confirmation
+    # 4. Build concise plan summary, hash plan, and save awaiting user confirmation
+    raw_plan_text = readable_plan["output"] or ""
+    key_attr_re = re.compile(
+        r"^(?:[+-~]\s+)?(name|dataset_id|table_id|project|location|region|zone|machine_type|runtime|entry_point|database_version|tier|storage_class|topic|force_destroy|uniform_bucket_level_access|deletion_protection)\s*="
+    )
+    compact_lines = []
+    in_res_block = False
+    for raw_line in raw_plan_text.splitlines():
+        s_line = raw_line.strip()
+        if s_line.startswith("# ") and ("will be " in s_line or "must be " in s_line):
+            compact_lines.append(s_line)
+        elif re.match(r"^[+-~]?\s*resource\s+\"[^\"]+\"\s+\"[^\"]+\"\s*\{", s_line):
+            compact_lines.append(s_line)
+            in_res_block = True
+        elif in_res_block and key_attr_re.match(s_line):
+            compact_lines.append("  " + s_line)
+        elif s_line.startswith("Plan:"):
+            if in_res_block:
+                compact_lines.append("  }")
+                in_res_block = False
+            compact_lines.append("")
+            compact_lines.append(s_line)
+    if in_res_block:
+        compact_lines.append("  }")
+    concise_summary = "\n".join(compact_lines) if compact_lines else "\n".join(raw_plan_text.splitlines()[-10:])
+
     digest = hashlib.sha256(saved_plan.read_bytes()).hexdigest()
     record["plan_sha256"] = digest
     record["plan_file"] = str(saved_plan.resolve())
-    record["plan_summary"] = readable_plan["output"]
+    record["plan_summary"] = concise_summary
     _set_status(
         record,
         "AWAITING_APPROVAL",
@@ -1354,7 +1759,7 @@ def plan_resource(request_id: str) -> dict:
         "request_id": request_id,
         "action": action,
         "plan_sha256": digest,
-        "plan_summary": readable_plan["output"][:30000],
+        "plan_summary": concise_summary,
         "message": (
             f"Terraform plan for {action_label} is ready. "
             "Please review the plan summary and explicitly confirm the apply tool call to proceed."
@@ -1481,6 +1886,32 @@ def apply_resource(
     }
 
 
+def _resolve_expected_address(
+    normalized_type: str,
+    resource_name: str,
+    active_record: dict,
+    dataset_id: str | None = None,
+) -> str:
+    """Resolve the Terraform resource address for an active or deactivated request record."""
+    expected_address = active_record.get("expected_address")
+    if expected_address and not expected_address.endswith(".requested"):
+        return expected_address
+    hcl_type = SUPPORTED_RESOURCES[normalized_type]["resource_type_hcl"]
+    if normalized_type == "gcp.bigquery_table":
+        ds_id = dataset_id or active_record.get("resource_config", {}).get("dataset_id", "")
+        tf_name = re.sub(r"[^A-Za-z0-9_]", "_", f"{ds_id}_{resource_name.strip()}")
+    elif normalized_type in (
+        "gcp.storage_bucket",
+        "gcp.compute_instance",
+        "gcp.cloud_run_function",
+        "gcp.cloud_sql_instance",
+    ):
+        tf_name = re.sub(r"[^A-Za-z0-9_]", "_", resource_name.strip().lower())
+    else:
+        tf_name = re.sub(r"[^A-Za-z0-9_]", "_", resource_name.strip())
+    return f"{hcl_type}.{tf_name}"
+
+
 def plan_deactivate_resource(
     project_id: str,
     resource_name: str,
@@ -1518,24 +1949,9 @@ def plan_deactivate_resource(
     spec = SUPPORTED_RESOURCES[normalized_type]
     tf_file = GCP_ARTIFACTS_DIR / spec["primary_tf"]
 
-    expected_address = active_record.get("expected_address")
-    if not expected_address or expected_address.endswith(".requested"):
-        if normalized_type == "gcp.bigquery_table":
-            ds_id = dataset_id or active_record.get("resource_config", {}).get("dataset_id", "")
-            tf_name = re.sub(r"[^A-Za-z0-9_]", "_", f"{ds_id}_{resource_name.strip()}")
-            expected_address = f"google_bigquery_table.{tf_name}"
-        elif normalized_type == "gcp.storage_bucket":
-            tf_name = re.sub(r"[^A-Za-z0-9_]", "_", resource_name.strip().lower())
-            expected_address = f"google_storage_bucket.{tf_name}"
-        elif normalized_type == "gcp.pubsub_topic":
-            tf_name = re.sub(r"[^A-Za-z0-9_]", "_", resource_name.strip())
-            expected_address = f"google_pubsub_topic.{tf_name}"
-        elif normalized_type == "gcp.pubsub_subscription":
-            tf_name = re.sub(r"[^A-Za-z0-9_]", "_", resource_name.strip())
-            expected_address = f"google_pubsub_subscription.{tf_name}"
-        else:
-            tf_name = re.sub(r"[^A-Za-z0-9_]", "_", resource_name.strip())
-            expected_address = f"google_bigquery_dataset.{tf_name}"
+    expected_address = _resolve_expected_address(
+        normalized_type, resource_name, active_record, dataset_id=dataset_id
+    )
 
     # Ensure runtime artifacts directory and common files exist
     output_dir = GCP_ARTIFACTS_DIR
@@ -1613,24 +2029,9 @@ def plan_recreate_resource(
     spec = SUPPORTED_RESOURCES[normalized_type]
     tf_file = GCP_ARTIFACTS_DIR / spec["primary_tf"]
 
-    expected_address = active_record.get("expected_address")
-    if not expected_address or expected_address.endswith(".requested"):
-        if normalized_type == "gcp.bigquery_table":
-            ds_id = dataset_id or active_record.get("resource_config", {}).get("dataset_id", "")
-            tf_name = re.sub(r"[^A-Za-z0-9_]", "_", f"{ds_id}_{resource_name.strip()}")
-            expected_address = f"google_bigquery_table.{tf_name}"
-        elif normalized_type == "gcp.storage_bucket":
-            tf_name = re.sub(r"[^A-Za-z0-9_]", "_", resource_name.strip().lower())
-            expected_address = f"google_storage_bucket.{tf_name}"
-        elif normalized_type == "gcp.pubsub_topic":
-            tf_name = re.sub(r"[^A-Za-z0-9_]", "_", resource_name.strip())
-            expected_address = f"google_pubsub_topic.{tf_name}"
-        elif normalized_type == "gcp.pubsub_subscription":
-            tf_name = re.sub(r"[^A-Za-z0-9_]", "_", resource_name.strip())
-            expected_address = f"google_pubsub_subscription.{tf_name}"
-        else:
-            tf_name = re.sub(r"[^A-Za-z0-9_]", "_", resource_name.strip())
-            expected_address = f"google_bigquery_dataset.{tf_name}"
+    expected_address = _resolve_expected_address(
+        normalized_type, resource_name, active_record, dataset_id=dataset_id
+    )
 
     # Ensure runtime artifacts directory and common files exist
     output_dir = GCP_ARTIFACTS_DIR
@@ -2023,12 +2424,113 @@ async def _verify_pubsub_subscription(record: dict) -> dict:
     }
 
 
+async def _verify_gcp_rest_resource(
+    record: dict,
+    display_label: str,
+    api_url: str,
+) -> dict:
+    """Verify a GCP resource via Google REST API GET (404 confirms deletion)."""
+    try:
+        import google.auth
+        from google.auth.transport.requests import AuthorizedSession
+    except ImportError:
+        _set_status(record, "READY", f"{display_label} applied (google-auth unavailable for REST verification).")
+        return {
+            "status": "READY",
+            "project_id": record["project_id"],
+            "resource_name": record["resource_name"],
+            "message": f"{display_label} '{record['resource_name']}' applied in project '{record['project_id']}'.",
+        }
+
+    is_deactivation = record.get("action") == "DEACTIVATE"
+    action_label = "deletion" if is_deactivation else "creation"
+    resource_name = record["resource_name"].strip()
+
+    credentials, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
+    session = AuthorizedSession(credentials)
+
+    print(f"\n[TaaS] Verifying {action_label} for {display_label} '{resource_name}' via REST API...")
+    for attempt in range(1, VERIFY_ATTEMPTS + 1):
+        print(f"[TaaS] {display_label} verification attempt {attempt}/{VERIFY_ATTEMPTS}...")
+        resp = await asyncio.to_thread(session.get, api_url, timeout=15)
+        if resp.status_code == 200:
+            if is_deactivation:
+                if attempt < VERIFY_ATTEMPTS:
+                    await asyncio.sleep(VERIFY_DELAY_SECONDS)
+                    continue
+                _set_status(record, "DEACTIVATE_UNCONFIRMED", f"{display_label} still exists in Google Cloud.")
+                return {
+                    "status": "VERIFYING",
+                    "message": f"{display_label} '{resource_name}' is still visible; deletion is still processing.",
+                }
+            _set_status(record, "READY", f"{display_label} verified and ready in Google Cloud.")
+            return {
+                "status": "READY",
+                "project_id": record["project_id"],
+                "resource_name": resource_name,
+                "location": record.get("location"),
+                "message": f"{display_label} '{resource_name}' is confirmed READY in project '{record['project_id']}'.",
+            }
+        if resp.status_code in (404, 410):
+            if is_deactivation:
+                _set_status(record, "DELETED", f"{display_label} confirmed deleted from Google Cloud. Code preserved.")
+                return {
+                    "status": "DELETED",
+                    "project_id": record["project_id"],
+                    "resource_name": resource_name,
+                    "message": (
+                        f"{display_label} '{resource_name}' has been confirmed DELETED from Google Cloud. "
+                        "The Terraform code is preserved in artifacts for future recreation."
+                    ),
+                }
+            if attempt < VERIFY_ATTEMPTS:
+                await asyncio.sleep(VERIFY_DELAY_SECONDS)
+                continue
+        elif attempt < VERIFY_ATTEMPTS:
+            await asyncio.sleep(VERIFY_DELAY_SECONDS)
+
+    return {
+        "status": "VERIFYING",
+        "message": (
+            f"{display_label} '{resource_name}' {action_label} not yet reflected in Google Cloud. "
+            "Please retry verification shortly."
+        ),
+    }
+
+
+async def _verify_compute_instance(record: dict) -> dict:
+    """Verify Compute Engine VM instance existence or deletion."""
+    loc = (record.get("resource_config", {}).get("zone") or record.get("location") or "asia-south2").strip()
+    zone = loc if len(loc.split("-")) >= 3 else f"{loc}-a"
+    name = record["resource_name"].strip().lower()
+    url = f"https://compute.googleapis.com/compute/v1/projects/{record['project_id']}/zones/{zone}/instances/{name}"
+    return await _verify_gcp_rest_resource(record, "Compute Engine VM", url)
+
+
+async def _verify_cloud_run_function(record: dict) -> dict:
+    """Verify Cloud Run Function (2nd Gen) existence or deletion."""
+    loc = (record.get("location") or "asia-south2").strip()
+    name = record["resource_name"].strip().lower()
+    url = f"https://cloudfunctions.googleapis.com/v2/projects/{record['project_id']}/locations/{loc}/functions/{name}"
+    return await _verify_gcp_rest_resource(record, "Cloud Run Function", url)
+
+
+async def _verify_cloud_sql_instance(record: dict) -> dict:
+    """Verify Cloud SQL instance existence or deletion."""
+    name = record["resource_name"].strip().lower()
+    url = f"https://sqladmin.googleapis.com/v1/projects/{record['project_id']}/instances/{name}"
+    return await _verify_gcp_rest_resource(record, "Cloud SQL instance", url)
+
+
 VERIFIERS = {
     "gcp.bigquery_dataset": _verify_bigquery,
     "gcp.bigquery_table": _verify_bigquery_table,
     "gcp.storage_bucket": _verify_storage_bucket,
     "gcp.pubsub_topic": _verify_pubsub_topic,
     "gcp.pubsub_subscription": _verify_pubsub_subscription,
+    "gcp.compute_instance": _verify_compute_instance,
+    "gcp.cloud_run_function": _verify_cloud_run_function,
+    "gcp.cloud_sql_instance": _verify_cloud_sql_instance,
 }
 
 
@@ -2460,6 +2962,113 @@ DOC_RESOURCE_METADATA = {
             },
         },
     },
+    "gcp.compute_instance": {
+        "hcl_type": "google_compute_instance",
+        "doc_file": "compute_instance.html.markdown",
+        "registry_slug": "compute_instance",
+        "primary_tf": "compute.tf",
+        "common_suggestions": {
+            "tags": {
+                "argument": "labels",
+                "explanation": "Assign key/value labels or network tags to the Compute Engine VM instance.",
+                "snippet": (
+                    '  labels = {\n'
+                    '    environment = "dev"\n'
+                    '    managed_by  = "taas"\n'
+                    '  }\n'
+                    '  tags = ["http-server", "web"]'
+                ),
+            },
+            "labels": {
+                "argument": "labels",
+                "explanation": "Assign key/value string pairs to label the Compute Engine VM.",
+                "snippet": (
+                    '  labels = {\n'
+                    '    environment = "dev"\n'
+                    '    owner       = "platform"\n'
+                    '  }'
+                ),
+            },
+            "machine_type": {
+                "argument": "machine_type",
+                "explanation": "Specify the Compute Engine machine type (e.g. e2-micro, e2-small, e2-medium).",
+                "snippet": '  machine_type = "e2-small"',
+            },
+        },
+    },
+    "gcp.cloud_run_function": {
+        "hcl_type": "google_cloudfunctions2_function",
+        "doc_file": "cloudfunctions2_function.html.markdown",
+        "registry_slug": "cloudfunctions2_function",
+        "primary_tf": "function.tf",
+        "common_suggestions": {
+            "tags": {
+                "argument": "labels",
+                "explanation": "Assign key/value labels to the Cloud Run Function (2nd Gen).",
+                "snippet": (
+                    '  labels = {\n'
+                    '    environment = "dev"\n'
+                    '    runtime     = "python312"\n'
+                    '  }'
+                ),
+            },
+            "labels": {
+                "argument": "labels",
+                "explanation": "Key/value labels attached to the Cloud Run Function.",
+                "snippet": (
+                    '  labels = {\n'
+                    '    environment = "dev"\n'
+                    '  }'
+                ),
+            },
+            "env": {
+                "argument": "environment_variables",
+                "explanation": "Pass runtime environment variables inside service_config.",
+                "snippet": (
+                    '    environment_variables = {\n'
+                    '      LOG_EXECUTION_ID = "true"\n'
+                    '    }'
+                ),
+            },
+        },
+    },
+    "gcp.cloud_sql_instance": {
+        "hcl_type": "google_sql_database_instance",
+        "doc_file": "sql_database_instance.html.markdown",
+        "registry_slug": "sql_database_instance",
+        "primary_tf": "sql.tf",
+        "common_suggestions": {
+            "tags": {
+                "argument": "user_labels",
+                "explanation": "In Cloud SQL, key/value labels are configured via user_labels inside the settings block.",
+                "snippet": (
+                    '    user_labels = {\n'
+                    '      environment = "dev"\n'
+                    '      managed_by  = "taas"\n'
+                    '    }'
+                ),
+            },
+            "labels": {
+                "argument": "user_labels",
+                "explanation": "Key/value labels attached inside the Cloud SQL settings block.",
+                "snippet": (
+                    '    user_labels = {\n'
+                    '      environment = "dev"\n'
+                    '    }'
+                ),
+            },
+            "backup": {
+                "argument": "backup_configuration",
+                "explanation": "Enable automated daily backups inside the Cloud SQL settings block.",
+                "snippet": (
+                    '    backup_configuration {\n'
+                    '      enabled    = true\n'
+                    '      start_time = "03:00"\n'
+                    '    }'
+                ),
+            },
+        },
+    },
 }
 
 
@@ -2579,6 +3188,11 @@ def lookup_terraform_docs(resource_type: str, query: str | None = None) -> dict:
         "filter": "filter",
         "access": "access",
         "description": "description",
+        "machine": "machine_type",
+        "machine_type": "machine_type",
+        "env": "env",
+        "environment": "env",
+        "backup": "backup",
     }
 
     matched_key = None
@@ -2652,6 +3266,10 @@ STARTER_FILE_MAP = {
     "table.tf": STARTERS_DIR / "gcp" / "bigquery_table" / "table.tf",
     "topic.tf": STARTERS_DIR / "gcp" / "pubsub_topic" / "topic.tf",
     "subscription.tf": STARTERS_DIR / "gcp" / "pubsub_subscription" / "subscription.tf",
+    "compute.tf": STARTERS_DIR / "gcp" / "compute_instance" / "compute.tf",
+    "function.tf": STARTERS_DIR / "gcp" / "cloud_run_function" / "function.tf",
+    "function.py": STARTERS_DIR / "gcp" / "cloud_run_function" / "src" / "main.py",
+    "sql.tf": STARTERS_DIR / "gcp" / "cloud_sql_instance" / "sql.tf",
     "main.tf": COMMON_STARTER_DIR / "main.tf",
     "variables.tf": COMMON_STARTER_DIR / "variables.tf",
 }
@@ -2759,6 +3377,70 @@ def read_artifact_code(file_name: str | None = None) -> dict:
     }
 
 
+def _resolve_editor_starter_placeholders(
+    clean_name: str,
+    hcl_text: str,
+    project_id: str,
+    location: str,
+) -> str:
+    """Resolve starter template placeholders when saving directly from the Pre-Plan Code editor."""
+    updated = hcl_text
+    if clean_name == "function.tf":
+        name_match = re.search(r'^\s*name\s*=\s*"([^"]+)"', updated, re.MULTILINE)
+        if name_match and "var.resource_config" not in name_match.group(1):
+            func_name = name_match.group(1).strip().lower()
+            tf_name = re.sub(r"[^A-Za-z0-9_]", "_", func_name)
+            updated = re.sub(
+                r'(resource\s+"google_cloudfunctions2_function"\s+)"requested"',
+                rf'\1"{tf_name}"',
+                updated,
+                count=1,
+            )
+            res_match = re.search(
+                r'^\s*resource\s+"google_cloudfunctions2_function"\s+"([A-Za-z0-9_]+)"',
+                updated,
+                re.MULTILINE,
+            )
+            if res_match:
+                tf_name = res_match.group(1)
+            if (
+                'var.resource_config["source_bucket"]' in updated
+                or 'var.resource_config["source_object"]' in updated
+            ):
+                src_bucket, src_object = _ensure_function_source_zip(
+                    project_id=project_id,
+                    tf_name=tf_name,
+                )
+                updated = updated.replace('var.resource_config["source_bucket"]', f'"{src_bucket}"')
+                updated = updated.replace('var.resource_config["source_object"]', f'"{src_object}"')
+    elif clean_name == "compute.tf":
+        name_match = re.search(r'^\s*name\s*=\s*"([^"]+)"', updated, re.MULTILINE)
+        if name_match and "var.resource_config" not in name_match.group(1):
+            tf_name = re.sub(r"[^A-Za-z0-9_]", "_", name_match.group(1).strip().lower())
+            updated = re.sub(
+                r'(resource\s+"google_compute_instance"\s+)"requested"',
+                rf'\1"{tf_name}"',
+                updated,
+                count=1,
+            )
+            zone = location if len(location.split("-")) >= 3 else f"{location}-a"
+            updated = updated.replace('lookup(var.resource_config, "machine_type", "e2-micro")', '"e2-micro"')
+            updated = updated.replace('lookup(var.resource_config, "zone", "${var.location}-a")', f'"{zone}"')
+    elif clean_name == "sql.tf":
+        name_match = re.search(r'^\s*name\s*=\s*"([^"]+)"', updated, re.MULTILINE)
+        if name_match and "var.resource_config" not in name_match.group(1):
+            tf_name = re.sub(r"[^A-Za-z0-9_]", "_", name_match.group(1).strip().lower())
+            updated = re.sub(
+                r'(resource\s+"google_sql_database_instance"\s+)"requested"',
+                rf'\1"{tf_name}"',
+                updated,
+                count=1,
+            )
+            updated = updated.replace('lookup(var.resource_config, "database_version", "POSTGRES_15")', '"POSTGRES_15"')
+            updated = updated.replace('lookup(var.resource_config, "tier", "db-f1-micro")', '"db-f1-micro"')
+    return updated
+
+
 def update_artifact_code(
     file_name: str,
     code_content: str | None = None,
@@ -2772,7 +3454,7 @@ def update_artifact_code(
 
     Args:
         file_name: Target file in artifacts/gcp (e.g. 'bucket.tf', 'dataset.tf', 'table.tf',
-                   'topic.tf', 'subscription.tf').
+                   'topic.tf', 'subscription.tf', 'compute.tf', 'function.tf', 'function.py', 'sql.tf').
         code_content: Full replacement content for the file (if replacing the whole file).
         resource_address: Address of resource to update (e.g. 'google_storage_bucket.my_bucket').
         resource_block: New or updated HCL block for the specific resource.
@@ -2781,15 +3463,17 @@ def update_artifact_code(
         dict: Updated file content and status.
     """
     clean_name = Path(file_name.strip()).name
-    if not (clean_name.endswith(".tf") or clean_name.endswith(".tfvars")):
+    if not (clean_name.endswith(".tf") or clean_name.endswith(".tfvars") or clean_name == "function.py"):
         return {
             "status": "INVALID",
-            "message": f"File name '{clean_name}' must have a .tf or .tfvars extension.",
+            "message": f"File name '{clean_name}' must have a .tf, .tfvars, or function.py extension.",
         }
 
     GCP_ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
     project_id = os.getenv("GOOGLE_CLOUD_PROJECT", "solar-dialect-264808").strip()
-    location = os.getenv("GOOGLE_CLOUD_LOCATION", "asia-south2").strip()
+    location = (os.getenv("TAAS_DEFAULT_REGION") or os.getenv("GOOGLE_CLOUD_LOCATION") or "asia-south2").strip()
+    if location.lower() == "global":
+        location = "asia-south2"
     state_bucket = os.getenv("TAAS_STATE_BUCKET", "terraform-implementation").strip()
 
     # Ensure common starter files (main.tf, variables.tf, terraform.tfvars, backend.tfvars) exist in artifacts/gcp
@@ -2819,16 +3503,23 @@ def update_artifact_code(
         _upsert_resource_block(target_path, addr, block_clean)
 
     elif code_content is not None:
-        target_path.write_text(code_content.strip() + "\n", encoding="utf-8")
+        prepared = code_content.strip() + "\n"
+        if clean_name.endswith(".tf"):
+            prepared = _resolve_editor_starter_placeholders(clean_name, prepared, project_id, location)
+            prepared = _dedupe_hcl_blocks(prepared)
+        target_path.write_text(prepared, encoding="utf-8")
     else:
         return {
             "status": "INVALID",
             "message": "Must provide either 'resource_block' (with optional 'resource_address') or 'code_content'.",
         }
 
-    # Format the file with terraform fmt
-    fmt_res = _run_terraform(["fmt", clean_name], GCP_ARTIFACTS_DIR)
-    fmt_status = "formatted with terraform fmt" if fmt_res.get("returncode") == 0 else "saved (terraform fmt skipped)"
+    # Format the file with terraform fmt (for HCL files only)
+    if clean_name.endswith(".py"):
+        fmt_status = "saved Python function code"
+    else:
+        fmt_res = _run_terraform(["fmt", clean_name], GCP_ARTIFACTS_DIR)
+        fmt_status = "formatted with terraform fmt" if fmt_res.get("returncode") == 0 else "saved (terraform fmt skipped)"
 
     updated_text = target_path.read_text(encoding="utf-8")
     return {

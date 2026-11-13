@@ -61,10 +61,13 @@ if _HAS_ADK:
 
         Currently supported resources:
         - Google Cloud BigQuery dataset ('gcp.bigquery_dataset' or 'bigquery_dataset'): project_id, location, dataset_id (resource_name). Managed in dataset.tf.
-        - Google Cloud BigQuery table ('gcp.bigquery_table' or 'bigquery_table'): project_id, location, dataset_id, table_id (resource_name). Pass dataset_id in config: {"dataset_id": dataset_id}. Managed in table.tf.
+        - Google Cloud BigQuery table ('gcp.bigquery_table' or 'bigquery_table'): project_id, location, parent dataset_id, table_id (resource_name). Pass dataset_id in config: {"dataset_id": dataset_id}. Managed in table.tf.
         - Google Cloud Storage bucket ('gcp.storage_bucket' or 'storage_bucket'): project_id, location, bucket_name (resource_name). Pass bucket_name in config: {"bucket_name": bucket_name}. Managed in bucket.tf.
         - Google Cloud Pub/Sub topic ('gcp.pubsub_topic' or 'pubsub_topic'): project_id, topic_name (resource_name), location (default 'global'). Managed in topic.tf.
         - Google Cloud Pub/Sub subscription ('gcp.pubsub_subscription' or 'pubsub_subscription'): project_id, subscription_name (resource_name), parent topic (pass in config: {"topic": topic_name}). Managed in subscription.tf.
+        - Google Compute Engine VM ('gcp.compute_instance' or 'compute_instance'): project_id, location/zone (defaults to <location>-a), instance_name (resource_name), optional config: {"machine_type": "e2-micro", "zone": "..."}. Managed in compute.tf.
+        - Google Cloud Run Function 2nd Gen ('gcp.cloud_run_function' or 'cloud_run_function'): project_id, location, function_name (resource_name), deploys Python 3.12 Hello World code from terraform_starters/gcp/cloud_run_function/src/. Managed in function.tf & function.py.
+        - Google Cloud SQL instance ('gcp.cloud_sql_instance' or 'cloud_sql_instance'): project_id, location/region, instance_name (resource_name), optional config: {"database_version": "POSTGRES_15", "tier": "db-f1-micro"}. Managed in sql.tf.
 
         WORKFLOWS:
 
